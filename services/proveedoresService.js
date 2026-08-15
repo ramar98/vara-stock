@@ -1,65 +1,58 @@
-const db = require("../config/db");
+const db = require(
+  "../config/db",
+);
 
-const obtenerProveedores = async ({
-  busqueda = "",
-} = {}) => {
-  const texto =
-    String(busqueda ?? "").trim();
+/*
+ * =====================================
+ * OBTENER PROVEEDORES
+ * =====================================
+ */
 
-  const parametros = [];
-  let where = "";
+const obtenerProveedores =
+  async ({
+    empresaId,
+    busqueda = "",
+  } = {}) => {
+    const texto =
+      String(
+        busqueda ?? "",
+      ).trim();
 
-  if (texto) {
-    const filtro =
-      `%${texto}%`;
+    const parametros = [
+      empresaId,
+    ];
 
-    where = `
-      WHERE
-        nombre LIKE ?
-        OR telefono LIKE ?
-        OR email LIKE ?
-        OR direccion LIKE ?
+    let where = `
+      WHERE empresa_id = ?
     `;
 
-    parametros.push(
-      filtro,
-      filtro,
-      filtro,
-      filtro,
-    );
-  }
+    if (texto) {
+      const filtro =
+        `%${texto}%`;
 
-  const [rows] =
-    await db.query(
-      `
-        SELECT
-          id,
-          nombre,
-          telefono,
-          email,
-          direccion,
-          observaciones,
-          created_at
+      where += `
+        AND (
+          nombre LIKE ?
+          OR telefono LIKE ?
+          OR email LIKE ?
+          OR direccion LIKE ?
+        )
+      `;
 
-        FROM proveedores
+      parametros.push(
+        filtro,
+        filtro,
+        filtro,
+        filtro,
+      );
+    }
 
-        ${where}
-
-        ORDER BY nombre ASC
-      `,
-      parametros,
-    );
-
-  return rows;
-};
-
-const obtenerProveedorPorId =
-  async (id) => {
     const [rows] =
       await db.query(
         `
           SELECT
             id,
+            empresa_id,
             nombre,
             telefono,
             email,
@@ -69,58 +62,128 @@ const obtenerProveedorPorId =
 
           FROM proveedores
 
-          WHERE id = ?
+          ${where}
+
+          ORDER BY
+            nombre ASC
+        `,
+        parametros,
+      );
+
+    return rows;
+  };
+
+/*
+ * =====================================
+ * OBTENER PROVEEDOR POR ID
+ * =====================================
+ */
+
+const obtenerProveedorPorId =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const [rows] =
+      await db.query(
+        `
+          SELECT
+            id,
+            empresa_id,
+            nombre,
+            telefono,
+            email,
+            direccion,
+            observaciones,
+            created_at
+
+          FROM proveedores
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
 
           LIMIT 1
         `,
-        [id],
+        [
+          id,
+          empresaId,
+        ],
       );
 
-    return rows[0] ?? null;
+    return (
+      rows[0] ??
+      null
+    );
   };
 
-const crearProveedor = async (
-  data,
-) => {
-  const {
-    nombre,
-    telefono = null,
-    email = null,
-    direccion = null,
-    observaciones = null,
-  } = data;
+/*
+ * =====================================
+ * CREAR PROVEEDOR
+ * =====================================
+ */
 
-  const [result] =
-    await db.query(
-      `
-        INSERT INTO proveedores
-        (
+const crearProveedor =
+  async (
+    empresaId,
+    data,
+  ) => {
+    const {
+      nombre,
+      telefono = null,
+      email = null,
+      direccion = null,
+      observaciones = null,
+    } = data;
+
+    const [result] =
+      await db.query(
+        `
+          INSERT INTO proveedores
+          (
+            empresa_id,
+            nombre,
+            telefono,
+            email,
+            direccion,
+            observaciones
+          )
+
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
+        `,
+        [
+          empresaId,
           nombre,
           telefono,
           email,
           direccion,
-          observaciones
-        )
+          observaciones,
+        ],
+      );
 
-        VALUES (?, ?, ?, ?, ?)
-      `,
-      [
-        nombre,
-        telefono,
-        email,
-        direccion,
-        observaciones,
-      ],
+    return obtenerProveedorPorId(
+      result.insertId,
+      empresaId,
     );
+  };
 
-  return obtenerProveedorPorId(
-    result.insertId,
-  );
-};
+/*
+ * =====================================
+ * ACTUALIZAR PROVEEDOR
+ * =====================================
+ */
 
 const actualizarProveedor =
   async (
     id,
+    empresaId,
     data,
   ) => {
     const {
@@ -143,7 +206,9 @@ const actualizarProveedor =
             direccion = ?,
             observaciones = ?
 
-          WHERE id = ?
+          WHERE
+            id = ?
+            AND empresa_id = ?
         `,
         [
           nombre,
@@ -152,6 +217,7 @@ const actualizarProveedor =
           direccion,
           observaciones,
           id,
+          empresaId,
         ],
       );
 
@@ -164,32 +230,58 @@ const actualizarProveedor =
 
     return obtenerProveedorPorId(
       id,
+      empresaId,
     );
   };
 
+/*
+ * =====================================
+ * PROVEEDOR TIENE RELACIONES
+ * =====================================
+ */
+
 const proveedorTieneRelaciones =
-  async (id) => {
+  async (
+    id,
+    empresaId,
+  ) => {
     const [rows] =
       await db.query(
         `
           SELECT
             (
-              SELECT COUNT(*)
+              SELECT
+                COUNT(*)
+
               FROM productos
-              WHERE proveedor_id = ?
+
+              WHERE
+                proveedor_id = ?
+                AND empresa_id = ?
             ) AS productos,
 
             (
-              SELECT COUNT(*)
+              SELECT
+                COUNT(*)
+
               FROM ingresos
-              WHERE proveedor_id = ?
+
+              WHERE
+                proveedor_id = ?
+                AND empresa_id = ?
             ) AS ingresos
         `,
-        [id, id],
+        [
+          id,
+          empresaId,
+          id,
+          empresaId,
+        ],
       );
 
     const resultado =
-      rows[0] ?? {};
+      rows[0] ??
+      {};
 
     return (
       Number(
@@ -203,16 +295,32 @@ const proveedorTieneRelaciones =
     );
   };
 
+/*
+ * =====================================
+ * ELIMINAR PROVEEDOR
+ * =====================================
+ */
+
 const eliminarProveedor =
-  async (id) => {
+  async (
+    id,
+    empresaId,
+  ) => {
     const proveedor =
       await obtenerProveedorPorId(
         id,
+        empresaId,
       );
+
+    /*
+     * Si pertenece a otra empresa,
+     * se comporta como inexistente.
+     */
 
     if (!proveedor) {
       return {
         eliminado: false,
+
         motivo:
           "NO_ENCONTRADO",
       };
@@ -221,11 +329,13 @@ const eliminarProveedor =
     const tieneRelaciones =
       await proveedorTieneRelaciones(
         id,
+        empresaId,
       );
 
     if (tieneRelaciones) {
       return {
         eliminado: false,
+
         motivo:
           "TIENE_RELACIONES",
       };
@@ -235,17 +345,25 @@ const eliminarProveedor =
       await db.query(
         `
           DELETE FROM proveedores
-          WHERE id = ?
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
         `,
-        [id],
+        [
+          id,
+          empresaId,
+        ],
       );
 
     return {
       eliminado:
-        result.affectedRows > 0,
+        result.affectedRows >
+        0,
 
       motivo:
-        result.affectedRows > 0
+        result.affectedRows >
+        0
           ? null
           : "NO_ENCONTRADO",
     };
@@ -253,8 +371,12 @@ const eliminarProveedor =
 
 module.exports = {
   obtenerProveedores,
+
   obtenerProveedorPorId,
+
   crearProveedor,
+
   actualizarProveedor,
+
   eliminarProveedor,
 };

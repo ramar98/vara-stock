@@ -5,11 +5,30 @@ const clientesService = require(
 function convertirId(valor) {
   const id = Number(valor);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
     return null;
   }
 
   return id;
+}
+
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
 }
 
 function normalizarTexto(valor) {
@@ -21,7 +40,8 @@ function normalizarTexto(valor) {
 }
 
 function normalizarTextoOpcional(valor) {
-  const texto = normalizarTexto(valor);
+  const texto =
+    normalizarTexto(valor);
 
   return texto || null;
 }
@@ -39,18 +59,20 @@ function validarEmail(email) {
 function validarCliente(body = {}) {
   const errores = [];
 
-  const nombre = normalizarTexto(
-    body.nombre,
-  );
+  const nombre =
+    normalizarTexto(
+      body.nombre,
+    );
 
   const telefono =
     normalizarTextoOpcional(
       body.telefono,
     );
 
-  const email = normalizarTextoOpcional(
-    body.email,
-  );
+  const email =
+    normalizarTextoOpcional(
+      body.email,
+    );
 
   const direccion =
     normalizarTextoOpcional(
@@ -103,8 +125,11 @@ function validarCliente(body = {}) {
   }
 
   return {
-    valido: errores.length === 0,
+    valido:
+      errores.length === 0,
+
     errores,
+
     datos: {
       nombre,
       telefono,
@@ -114,16 +139,45 @@ function validarCliente(body = {}) {
   };
 }
 
-function responderError(res, error) {
-  if (error.code === "ER_DUP_ENTRY") {
-    return res.status(409).json({
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
       success: false,
+
       message:
-        "Ya existe un cliente con esos datos.",
+        "No se pudo determinar la empresa del usuario autenticado.",
+
       error: {
-        code: error.code,
+        code:
+          "EMPRESA_NO_ASIGNADA",
       },
     });
+}
+
+function responderError(
+  res,
+  error,
+) {
+  if (
+    error.code ===
+    "ER_DUP_ENTRY"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          "Ya existe un cliente con esos datos dentro de la empresa.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
   }
 
   console.error(
@@ -131,210 +185,389 @@ function responderError(res, error) {
     error,
   );
 
-  return res.status(500).json({
-    success: false,
-    message:
-      "Ocurrió un error interno procesando el cliente.",
-    error:
-      process.env.NODE_ENV ===
-      "development"
-        ? {
-            code: error.code,
-            detail: error.message,
-          }
-        : undefined,
-  });
+  return res
+    .status(500)
+    .json({
+      success: false,
+
+      message:
+        "Ocurrió un error interno procesando el cliente.",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
-exports.obtenerClientes = async (
-  req,
-  res,
-) => {
-  try {
-    const clientes =
-      await clientesService.obtenerClientes({
-        busqueda:
-          req.query.busqueda || "",
-      });
+/*
+ * =====================================
+ * OBTENER CLIENTES
+ * =====================================
+ */
 
-    return res.status(200).json({
-      success: true,
-      data: clientes,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+exports.obtenerClientes =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
 
-exports.obtenerCliente = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del cliente no es válido.",
-    });
-  }
-
-  try {
-    const cliente =
-      await clientesService.obtenerClientePorId(
-        id,
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
       );
-
-    if (!cliente) {
-      return res.status(404).json({
-        success: false,
-        message: "Cliente no encontrado.",
-      });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: cliente,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    try {
+      const clientes =
+        await clientesService.obtenerClientes({
+          empresaId,
 
-exports.crearCliente = async (
-  req,
-  res,
-) => {
-  const validacion = validarCliente(
-    req.body,
-  );
+          busqueda:
+            req.query.busqueda ||
+            "",
+        });
 
-  if (!validacion.valido) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "Los datos del cliente no son válidos.",
-      errors: validacion.errores,
-    });
-  }
+      return res
+        .status(200)
+        .json({
+          success: true,
 
-  try {
-    const cliente =
-      await clientesService.crearCliente(
-        validacion.datos,
+          data:
+            clientes,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * OBTENER CLIENTE
+ * =====================================
+ */
+
+exports.obtenerCliente =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
       );
 
-    return res.status(201).json({
-      success: true,
-      message:
-        "Cliente creado correctamente.",
-      data: cliente,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-exports.actualizarCliente = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del cliente no es válido.",
-    });
-  }
-
-  const validacion = validarCliente(
-    req.body,
-  );
-
-  if (!validacion.valido) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "Los datos del cliente no son válidos.",
-      errors: validacion.errores,
-    });
-  }
-
-  try {
-    const cliente =
-      await clientesService.actualizarCliente(
-        id,
-        validacion.datos,
-      );
-
-    if (!cliente) {
-      return res.status(404).json({
-        success: false,
-        message: "Cliente no encontrado.",
-      });
+          message:
+            "El ID del cliente no es válido.",
+        });
     }
 
-    return res.status(200).json({
-      success: true,
-      message:
-        "Cliente actualizado correctamente.",
-      data: cliente,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    const empresaId =
+      obtenerEmpresaId(req);
 
-exports.eliminarCliente = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
 
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del cliente no es válido.",
-    });
-  }
+    try {
+      const cliente =
+        await clientesService.obtenerClientePorId(
+          id,
+          empresaId,
+        );
 
-  try {
-    const resultado =
-      await clientesService.eliminarCliente(
-        id,
+      if (!cliente) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Cliente no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data:
+            cliente,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * CREAR CLIENTE
+ * =====================================
+ */
+
+exports.crearCliente =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarCliente(
+        req.body,
       );
 
     if (
-      resultado.motivo ===
-      "NO_ENCONTRADO"
+      !validacion.valido
     ) {
-      return res.status(404).json({
-        success: false,
-        message: "Cliente no encontrado.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del cliente no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
     }
+
+    try {
+      const cliente =
+        await clientesService.crearCliente(
+          empresaId,
+          validacion.datos,
+        );
+
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Cliente creado correctamente.",
+
+          data:
+            cliente,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ACTUALIZAR CLIENTE
+ * =====================================
+ */
+
+exports.actualizarCliente =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del cliente no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarCliente(
+        req.body,
+      );
 
     if (
-      resultado.motivo ===
-      "TIENE_VENTAS"
+      !validacion.valido
     ) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "No se puede eliminar el cliente porque tiene ventas asociadas.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del cliente no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
     }
 
-    return res.status(200).json({
-      success: true,
-      message:
-        "Cliente eliminado correctamente.",
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    try {
+      const cliente =
+        await clientesService.actualizarCliente(
+          id,
+          empresaId,
+          validacion.datos,
+        );
+
+      if (!cliente) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Cliente no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Cliente actualizado correctamente.",
+
+          data:
+            cliente,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ELIMINAR CLIENTE
+ * =====================================
+ */
+
+exports.eliminarCliente =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del cliente no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const resultado =
+        await clientesService.eliminarCliente(
+          id,
+          empresaId,
+        );
+
+      if (
+        resultado.motivo ===
+        "NO_ENCONTRADO"
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Cliente no encontrado.",
+          });
+      }
+
+      if (
+        resultado.motivo ===
+        "TIENE_VENTAS"
+      ) {
+        return res
+          .status(409)
+          .json({
+            success: false,
+
+            message:
+              "No se puede eliminar el cliente porque tiene ventas asociadas.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Cliente eliminado correctamente.",
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };

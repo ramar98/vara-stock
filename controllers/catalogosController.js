@@ -1,140 +1,630 @@
-const db = require("../config/db");
+const catalogosService = require(
+  "../services/catalogosService",
+);
 
-async function obtenerCatalogo({
-  tabla,
-  columnas = "id, nombre",
-  orden = "nombre ASC",
-}) {
+const TIPOS_PERMITIDOS = [
+  "categorias",
+  "marcas",
+  "colores",
+  "talles",
+];
 
-  const tablasPermitidas = [
-    "categorias",
-    "marcas",
-    "proveedores",
-    "colores",
-    "talles",
-  ];
-
-  if (!tablasPermitidas.includes(tabla)) {
-    throw new Error("Catálogo no permitido.");
-  }
-
-  const [rows] = await db.query(`
-    SELECT ${columnas}
-    FROM ${tabla}
-    ORDER BY ${orden}
-  `);
-
-  return rows;
+function validarTipo(tipo) {
+  return TIPOS_PERMITIDOS.includes(tipo);
 }
 
-function responderError(res, error, catalogo) {
+function convertirId(valor) {
+  const id = Number(valor);
+
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
+    return null;
+  }
+
+  return id;
+}
+
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
+function normalizarNombre(valor) {
+  if (typeof valor !== "string") {
+    return "";
+  }
+
+  return valor.trim();
+}
+
+function validarElemento(body = {}) {
+  const errores = [];
+
+  const nombre =
+    normalizarNombre(
+      body.nombre,
+    );
+
+  if (!nombre) {
+    errores.push(
+      "El nombre es obligatorio.",
+    );
+  }
+
+  if (nombre.length > 100) {
+    errores.push(
+      "El nombre no puede superar los 100 caracteres.",
+    );
+  }
+
+  return {
+    valido:
+      errores.length === 0,
+
+    errores,
+
+    datos: {
+      nombre,
+    },
+  };
+}
+
+function responderTipoInvalido(
+  res,
+) {
+  return res
+    .status(400)
+    .json({
+      success: false,
+
+      message:
+        "El tipo de catálogo no es válido.",
+
+      tipos_permitidos:
+        TIPOS_PERMITIDOS,
+    });
+}
+
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
+function responderError(
+  res,
+  error,
+) {
+  if (
+    error.code ===
+    "CATALOGO_NO_VALIDO"
+  ) {
+    return responderTipoInvalido(
+      res,
+    );
+  }
+
+  if (
+    error.code ===
+    "ER_DUP_ENTRY"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          "Ya existe un elemento con ese nombre en el catálogo de la empresa.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+    "ER_ROW_IS_REFERENCED_2"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          "No se puede eliminar el elemento porque está siendo utilizado.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+    "ELEMENTO_DUPLICADO"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          error.message,
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
   console.error(
-    `Error obteniendo ${catalogo}:`,
+    "Error procesando catálogo:",
     error,
   );
 
-  return res.status(500).json({
-    success: false,
-    message: `No se pudo obtener el catálogo de ${catalogo}.`,
-    error:
-      process.env.NODE_ENV === "development"
-        ? {
-          code: error.code,
-          detail: error.message,
-        }
-        : undefined,
-  });
+  return res
+    .status(500)
+    .json({
+      success: false,
+
+      message:
+        "Ocurrió un error interno procesando el catálogo.",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
-exports.obtenerCategorias = async (req, res) => {
-  try {
-    const categorias = await obtenerCatalogo({
-      tabla: "categorias",
-    });
+/*
+ * =====================================
+ * OBTENER ELEMENTOS
+ * =====================================
+ */
 
-    return res.status(200).json({
-      success: true,
-      data: categorias,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-      "categorías",
-    );
-  }
-};
+exports.obtenerElementos =
+  async (
+    req,
+    res,
+  ) => {
+    const { tipo } =
+      req.params;
 
-exports.obtenerMarcas = async (req, res) => {
-  try {
-    const marcas = await obtenerCatalogo({
-      tabla: "marcas",
-    });
+    if (!validarTipo(tipo)) {
+      return responderTipoInvalido(
+        res,
+      );
+    }
 
-    return res.status(200).json({
-      success: true,
-      data: marcas,
-    });
-  } catch (error) {
-    return responderError(res, error, "marcas");
-  }
-};
+    const empresaId =
+      obtenerEmpresaId(req);
 
-exports.obtenerProveedores = async (req, res) => {
-  try {
-    const proveedores = await obtenerCatalogo({
-      tabla: "proveedores",
-      columnas:
-        "id, nombre, telefono, email, direccion, observaciones",
-    });
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
 
-    return res.status(200).json({
-      success: true,
-      data: proveedores,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-      "proveedores",
-    );
-  }
-};
+    try {
+      const elementos =
+        await catalogosService.obtenerElementos(
+          tipo,
+          empresaId,
+          {
+            busqueda:
+              req.query.busqueda ||
+              "",
+          },
+        );
 
-exports.obtenerColores = async (req, res) => {
-  try {
-    const colores = await obtenerCatalogo({
-      tabla: "colores",
-    });
+      return res
+        .status(200)
+        .json({
+          success: true,
 
-    return res.status(200).json({
-      success: true,
-      data: colores,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-      "colores",
-    );
-  }
-};
+          data:
+            elementos,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
 
-exports.obtenerTalles = async (req, res) => {
-  try {
-    const talles = await obtenerCatalogo({
-      tabla: "talles",
-    });
+/*
+ * =====================================
+ * OBTENER ELEMENTO
+ * =====================================
+ */
 
-    return res.status(200).json({
-      success: true,
-      data: talles,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-      "talles",
-    );
-  }
-};
+exports.obtenerElemento =
+  async (
+    req,
+    res,
+  ) => {
+    const { tipo } =
+      req.params;
+
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!validarTipo(tipo)) {
+      return responderTipoInvalido(
+        res,
+      );
+    }
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del elemento no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const elemento =
+        await catalogosService.obtenerElementoPorId(
+          tipo,
+          id,
+          empresaId,
+        );
+
+      if (!elemento) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Elemento no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data:
+            elemento,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * CREAR ELEMENTO
+ * =====================================
+ */
+
+exports.crearElemento =
+  async (
+    req,
+    res,
+  ) => {
+    const { tipo } =
+      req.params;
+
+    if (!validarTipo(tipo)) {
+      return responderTipoInvalido(
+        res,
+      );
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarElemento(
+        req.body,
+      );
+
+    if (
+      !validacion.valido
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del elemento no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
+    }
+
+    try {
+      const elemento =
+        await catalogosService.crearElemento(
+          tipo,
+          empresaId,
+          validacion.datos,
+        );
+
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Elemento creado correctamente.",
+
+          data:
+            elemento,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ACTUALIZAR ELEMENTO
+ * =====================================
+ */
+
+exports.actualizarElemento =
+  async (
+    req,
+    res,
+  ) => {
+    const { tipo } =
+      req.params;
+
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!validarTipo(tipo)) {
+      return responderTipoInvalido(
+        res,
+      );
+    }
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del elemento no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarElemento(
+        req.body,
+      );
+
+    if (
+      !validacion.valido
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del elemento no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
+    }
+
+    try {
+      const elemento =
+        await catalogosService.actualizarElemento(
+          tipo,
+          id,
+          empresaId,
+          validacion.datos,
+        );
+
+      if (!elemento) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Elemento no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Elemento actualizado correctamente.",
+
+          data:
+            elemento,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ELIMINAR ELEMENTO
+ * =====================================
+ */
+
+exports.eliminarElemento =
+  async (
+    req,
+    res,
+  ) => {
+    const { tipo } =
+      req.params;
+
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!validarTipo(tipo)) {
+      return responderTipoInvalido(
+        res,
+      );
+    }
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del elemento no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const resultado =
+        await catalogosService.eliminarElemento(
+          tipo,
+          id,
+          empresaId,
+        );
+
+      if (
+        resultado.motivo ===
+        "NO_ENCONTRADO"
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Elemento no encontrado.",
+          });
+      }
+
+      if (
+        resultado.motivo ===
+        "TIENE_RELACIONES"
+      ) {
+        return res
+          .status(409)
+          .json({
+            success: false,
+
+            message:
+              "No se puede eliminar el elemento porque está asociado a productos o variantes.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Elemento eliminado correctamente.",
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };

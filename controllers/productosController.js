@@ -1,9 +1,17 @@
-const productosService = require(
-  "../services/productosService",
-);
+const productosService =
+  require(
+    "../services/productosService",
+  );
+
+/*
+ * =====================================
+ * CONVERTIR ID
+ * =====================================
+ */
 
 function convertirId(valor) {
-  const id = Number(valor);
+  const id =
+    Number(valor);
 
   if (
     !Number.isInteger(id) ||
@@ -15,15 +23,53 @@ function convertirId(valor) {
   return id;
 }
 
+/*
+ * =====================================
+ * EMPRESA
+ * =====================================
+ */
+
+function obtenerEmpresaId(req) {
+  const empresaId =
+    Number(
+      req.empresaId ??
+        req.usuario?.empresa_id,
+    );
+
+  if (
+    !Number.isInteger(
+      empresaId,
+    ) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
+/*
+ * =====================================
+ * TEXTO
+ * =====================================
+ */
+
 function normalizarTexto(valor) {
   if (
-    typeof valor !== "string"
+    typeof valor !==
+    "string"
   ) {
     return "";
   }
 
   return valor.trim();
 }
+
+/*
+ * =====================================
+ * ID OPCIONAL
+ * =====================================
+ */
 
 function normalizarIdOpcional(
   valor,
@@ -36,7 +82,8 @@ function normalizarIdOpcional(
     return null;
   }
 
-  const id = Number(valor);
+  const id =
+    Number(valor);
 
   if (
     !Number.isInteger(id) ||
@@ -47,6 +94,12 @@ function normalizarIdOpcional(
 
   return id;
 }
+
+/*
+ * =====================================
+ * ROL
+ * =====================================
+ */
 
 function normalizarRol(rol) {
   return String(
@@ -60,14 +113,17 @@ function esAdministrador(req) {
   return (
     normalizarRol(
       req.usuario?.rol,
-    ) === "ADMINISTRADOR"
+    ) ===
+    "ADMINISTRADOR"
   );
 }
 
 /*
- * Elimina datos sensibles para
- * usuarios que no sean Administrador.
+ * =====================================
+ * FILTRAR DATOS SEGÚN ROL
+ * =====================================
  */
+
 function filtrarProductoPorRol(
   producto,
   administrador,
@@ -84,14 +140,12 @@ function filtrarProductoPorRol(
     ...producto,
   };
 
-  delete productoSeguro.precio_costo;
-  delete productoSeguro.margen;
+  delete productoSeguro
+    .precio_costo;
 
-  /*
-   * Si el detalle trae variantes
-   * embebidas, también limpiamos
-   * el costo de cada variante.
-   */
+  delete productoSeguro
+    .margen;
+
   if (
     Array.isArray(
       productoSeguro.variantes,
@@ -104,8 +158,11 @@ function filtrarProductoPorRol(
             ...variante,
           };
 
-          delete varianteSegura.precio_costo;
-          delete varianteSegura.margen;
+          delete varianteSegura
+            .precio_costo;
+
+          delete varianteSegura
+            .margen;
 
           return varianteSegura;
         },
@@ -133,6 +190,12 @@ function filtrarProductosPorRol(
       ),
   );
 }
+
+/*
+ * =====================================
+ * VALIDAR PRODUCTO
+ * =====================================
+ */
 
 function validarProducto(
   body = {},
@@ -195,10 +258,12 @@ function validarProducto(
       "categoria_id",
       "La categoría",
     ],
+
     [
       "marca_id",
       "La marca",
     ],
+
     [
       "proveedor_id",
       "El proveedor",
@@ -223,7 +288,9 @@ function validarProducto(
         Number(valor);
 
       if (
-        !Number.isInteger(id) ||
+        !Number.isInteger(
+          id,
+        ) ||
         id <= 0
       ) {
         errores.push(
@@ -241,6 +308,7 @@ function validarProducto(
 
     datos: {
       codigo,
+
       nombre,
 
       descripcion:
@@ -266,6 +334,36 @@ function validarProducto(
   };
 }
 
+/*
+ * =====================================
+ * ERROR EMPRESA
+ * =====================================
+ */
+
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
+/*
+ * =====================================
+ * ERRORES BASE DE DATOS
+ * =====================================
+ */
+
 function responderErrorBaseDatos(
   res,
   error,
@@ -277,10 +375,50 @@ function responderErrorBaseDatos(
     return res
       .status(409)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
-          "Ya existe un producto con ese código.",
+          "Ya existe un producto con ese código dentro de la empresa.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  /*
+   * Relaciones pertenecientes
+   * a otra empresa o inexistentes.
+   */
+
+  const erroresRelacion = {
+    CATEGORIA_NO_VALIDA:
+      "La categoría seleccionada no pertenece a la empresa.",
+
+    MARCA_NO_VALIDA:
+      "La marca seleccionada no pertenece a la empresa.",
+
+    PROVEEDOR_NO_VALIDO:
+      "El proveedor seleccionado no pertenece a la empresa.",
+  };
+
+  if (
+    erroresRelacion[
+      error.code
+    ]
+  ) {
+    return res
+      .status(400)
+      .json({
+        success:
+          false,
+
+        message:
+          erroresRelacion[
+            error.code
+          ],
 
         error: {
           code:
@@ -296,7 +434,8 @@ function responderErrorBaseDatos(
     return res
       .status(400)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
           "La categoría, marca o proveedor seleccionado no existe.",
@@ -335,14 +474,36 @@ function responderErrorBaseDatos(
     });
 }
 
+/*
+ * =====================================
+ * OBTENER PRODUCTOS
+ * =====================================
+ */
+
 exports.obtenerProductos =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const productos =
-        await productosService.obtenerProductos();
+        await productosService.obtenerProductos(
+          empresaId,
+        );
 
       const administrador =
-        esAdministrador(req);
+        esAdministrador(
+          req,
+        );
 
       const productosFiltrados =
         filtrarProductosPorRol(
@@ -366,8 +527,17 @@ exports.obtenerProductos =
     }
   };
 
+/*
+ * =====================================
+ * OBTENER PRODUCTO
+ * =====================================
+ */
+
 exports.obtenerProducto =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     const id =
       convertirId(
         req.params.id,
@@ -377,24 +547,44 @@ exports.obtenerProducto =
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "El ID del producto no es válido.",
         });
     }
 
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const producto =
         await productosService.obtenerProductoPorId(
           id,
+          empresaId,
         );
+
+      /*
+       * Si el ID existe pero pertenece
+       * a otra empresa también devolvemos
+       * 404.
+       *
+       * No revelamos su existencia.
+       */
 
       if (!producto) {
         return res
           .status(404)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
               "Producto no encontrado.",
@@ -402,7 +592,9 @@ exports.obtenerProducto =
       }
 
       const administrador =
-        esAdministrador(req);
+        esAdministrador(
+          req,
+        );
 
       const productoFiltrado =
         filtrarProductoPorRol(
@@ -426,8 +618,26 @@ exports.obtenerProducto =
     }
   };
 
+/*
+ * =====================================
+ * CREAR PRODUCTO
+ * =====================================
+ */
+
 exports.crearProducto =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     const validacion =
       validarProducto(
         req.body,
@@ -439,7 +649,8 @@ exports.crearProducto =
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Los datos del producto no son válidos.",
@@ -450,15 +661,21 @@ exports.crearProducto =
     }
 
     try {
+      /*
+       * empresa_id NO viene del body.
+       */
+
       const producto =
         await productosService.crearProducto(
+          empresaId,
           validacion.datos,
         );
 
       return res
         .status(201)
         .json({
-          success: true,
+          success:
+            true,
 
           message:
             "Producto creado correctamente.",
@@ -474,8 +691,17 @@ exports.crearProducto =
     }
   };
 
+/*
+ * =====================================
+ * ACTUALIZAR PRODUCTO
+ * =====================================
+ */
+
 exports.actualizarProducto =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     const id =
       convertirId(
         req.params.id,
@@ -485,11 +711,21 @@ exports.actualizarProducto =
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "El ID del producto no es válido.",
         });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
     }
 
     const validacion =
@@ -503,7 +739,8 @@ exports.actualizarProducto =
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Los datos del producto no son válidos.",
@@ -517,6 +754,7 @@ exports.actualizarProducto =
       const producto =
         await productosService.actualizarProducto(
           id,
+          empresaId,
           validacion.datos,
         );
 
@@ -524,7 +762,8 @@ exports.actualizarProducto =
         return res
           .status(404)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
               "Producto no encontrado.",
@@ -534,7 +773,8 @@ exports.actualizarProducto =
       return res
         .status(200)
         .json({
-          success: true,
+          success:
+            true,
 
           message:
             "Producto actualizado correctamente.",
@@ -550,8 +790,17 @@ exports.actualizarProducto =
     }
   };
 
+/*
+ * =====================================
+ * ELIMINAR PRODUCTO
+ * =====================================
+ */
+
 exports.eliminarProducto =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     const id =
       convertirId(
         req.params.id,
@@ -561,24 +810,36 @@ exports.eliminarProducto =
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "El ID del producto no es válido.",
         });
     }
 
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const eliminado =
         await productosService.eliminarProducto(
           id,
+          empresaId,
         );
 
       if (!eliminado) {
         return res
           .status(404)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
               "Producto no encontrado.",
@@ -588,7 +849,8 @@ exports.eliminarProducto =
       return res
         .status(200)
         .json({
-          success: true,
+          success:
+            true,
 
           message:
             "Producto eliminado correctamente.",

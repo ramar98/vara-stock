@@ -2,6 +2,22 @@ const reportesService = require(
   "../services/reportesService",
 );
 
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
 function validarFecha(valor) {
   if (!valor) {
     return true;
@@ -69,151 +85,105 @@ function obtenerPeriodo(query = {}) {
   }
 
   return {
-    valido: errores.length === 0,
+    valido:
+      errores.length === 0,
+
     errores,
     fechaDesde,
     fechaHasta,
   };
 }
 
-function responderError(res, error) {
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
+function responderError(
+  res,
+  error,
+) {
   console.error(
     "Error generando reporte:",
     error,
   );
 
-  return res.status(500).json({
-    success: false,
-    message:
-      "Ocurrió un error interno generando el reporte.",
+  return res
+    .status(500)
+    .json({
+      success: false,
 
-    error:
-      process.env.NODE_ENV ===
-      "development"
-        ? {
-            code: error.code,
-            detail: error.message,
-          }
-        : undefined,
-  });
+      message:
+        "Ocurrió un error interno generando el reporte.",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
 function responderPeriodoInvalido(
   res,
   validacion,
 ) {
-  return res.status(400).json({
-    success: false,
-    message:
-      "El período seleccionado no es válido.",
-    errors: validacion.errores,
-  });
+  return res
+    .status(400)
+    .json({
+      success: false,
+
+      message:
+        "El período seleccionado no es válido.",
+
+      errors:
+        validacion.errores,
+    });
 }
 
-exports.obtenerReporteGeneral = async (
-  req,
-  res,
-) => {
-  const validacion = obtenerPeriodo(
-    req.query,
-  );
+/*
+ * =====================================
+ * REPORTE GENERAL
+ * =====================================
+ */
 
-  if (!validacion.valido) {
-    return responderPeriodoInvalido(
-      res,
-      validacion,
-    );
-  }
+exports.obtenerReporteGeneral =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
 
-  try {
-    const reporte =
-      await reportesService.obtenerReporteGeneral({
-        fechaDesde:
-          validacion.fechaDesde,
-        fechaHasta:
-          validacion.fechaHasta,
-      });
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
 
-    return res.status(200).json({
-      success: true,
-      data: reporte,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
-
-exports.obtenerResumenVentas = async (
-  req,
-  res,
-) => {
-  const validacion = obtenerPeriodo(
-    req.query,
-  );
-
-  if (!validacion.valido) {
-    return responderPeriodoInvalido(
-      res,
-      validacion,
-    );
-  }
-
-  try {
-    const resumen =
-      await reportesService.obtenerResumenVentas({
-        fechaDesde:
-          validacion.fechaDesde,
-        fechaHasta:
-          validacion.fechaHasta,
-      });
-
-    return res.status(200).json({
-      success: true,
-      data: resumen,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
-
-exports.obtenerVentasPorDia = async (
-  req,
-  res,
-) => {
-  const validacion = obtenerPeriodo(
-    req.query,
-  );
-
-  if (!validacion.valido) {
-    return responderPeriodoInvalido(
-      res,
-      validacion,
-    );
-  }
-
-  try {
-    const ventas =
-      await reportesService.obtenerVentasPorDia({
-        fechaDesde:
-          validacion.fechaDesde,
-        fechaHasta:
-          validacion.fechaHasta,
-      });
-
-    return res.status(200).json({
-      success: true,
-      data: ventas,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
-
-exports.obtenerProductosMasVendidos =
-  async (req, res) => {
-    const validacion = obtenerPeriodo(
-      req.query,
-    );
+    const validacion =
+      obtenerPeriodo(
+        req.query,
+      );
 
     if (!validacion.valido) {
       return responderPeriodoInvalido(
@@ -222,48 +192,263 @@ exports.obtenerProductosMasVendidos =
       );
     }
 
-    const limite = Number(
-      req.query.limite ?? 10,
-    );
+    try {
+      const reporte =
+        await reportesService.obtenerReporteGeneral(
+          {
+            empresaId,
+
+            fechaDesde:
+              validacion.fechaDesde,
+
+            fechaHasta:
+              validacion.fechaHasta,
+          },
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data: reporte,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * RESUMEN VENTAS
+ * =====================================
+ */
+
+exports.obtenerResumenVentas =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      obtenerPeriodo(
+        req.query,
+      );
+
+    if (!validacion.valido) {
+      return responderPeriodoInvalido(
+        res,
+        validacion,
+      );
+    }
+
+    try {
+      const resumen =
+        await reportesService.obtenerResumenVentas(
+          {
+            empresaId,
+
+            fechaDesde:
+              validacion.fechaDesde,
+
+            fechaHasta:
+              validacion.fechaHasta,
+          },
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data: resumen,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * VENTAS POR DÍA
+ * =====================================
+ */
+
+exports.obtenerVentasPorDia =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      obtenerPeriodo(
+        req.query,
+      );
+
+    if (!validacion.valido) {
+      return responderPeriodoInvalido(
+        res,
+        validacion,
+      );
+    }
+
+    try {
+      const ventas =
+        await reportesService.obtenerVentasPorDia(
+          {
+            empresaId,
+
+            fechaDesde:
+              validacion.fechaDesde,
+
+            fechaHasta:
+              validacion.fechaHasta,
+          },
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data: ventas,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * PRODUCTOS MÁS VENDIDOS
+ * =====================================
+ */
+
+exports.obtenerProductosMasVendidos =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      obtenerPeriodo(
+        req.query,
+      );
+
+    if (!validacion.valido) {
+      return responderPeriodoInvalido(
+        res,
+        validacion,
+      );
+    }
+
+    const limite =
+      Number(
+        req.query.limite ??
+          10,
+      );
 
     if (
-      !Number.isInteger(limite) ||
+      !Number.isInteger(
+        limite,
+      ) ||
       limite < 1 ||
       limite > 100
     ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "El límite debe ser un número entero entre 1 y 100.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El límite debe ser un número entero entre 1 y 100.",
+        });
     }
 
     try {
       const productos =
         await reportesService.obtenerProductosMasVendidos(
           {
+            empresaId,
+
             fechaDesde:
               validacion.fechaDesde,
+
             fechaHasta:
               validacion.fechaHasta,
+
             limite,
           },
         );
 
-      return res.status(200).json({
-        success: true,
-        data: productos,
-      });
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data: productos,
+        });
     } catch (error) {
-      return responderError(res, error);
+      return responderError(
+        res,
+        error,
+      );
     }
   };
 
+/*
+ * =====================================
+ * VENTAS POR MÉTODO DE PAGO
+ * =====================================
+ */
+
 exports.obtenerVentasPorMetodoPago =
-  async (req, res) => {
-    const validacion = obtenerPeriodo(
-      req.query,
-    );
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      obtenerPeriodo(
+        req.query,
+      );
 
     if (!validacion.valido) {
       return responderPeriodoInvalido(
@@ -276,72 +461,121 @@ exports.obtenerVentasPorMetodoPago =
       const ventas =
         await reportesService.obtenerVentasPorMetodoPago(
           {
+            empresaId,
+
             fechaDesde:
               validacion.fechaDesde,
+
             fechaHasta:
               validacion.fechaHasta,
           },
         );
 
-      return res.status(200).json({
-        success: true,
-        data: ventas,
-      });
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data: ventas,
+        });
     } catch (error) {
-      return responderError(res, error);
+      return responderError(
+        res,
+        error,
+      );
     }
   };
 
-exports.obtenerStockActual = async (
-  req,
-  res,
-) => {
-  try {
-    const stock =
-      await reportesService.obtenerStockActual();
+/*
+ * =====================================
+ * STOCK ACTUAL
+ * =====================================
+ */
 
-    const resumen = stock.reduce(
-      (acumulado, item) => {
-        acumulado.variantes += 1;
+exports.obtenerStockActual =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
 
-        acumulado.unidades += Number(
-          item.stock_actual ?? 0,
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const stock =
+        await reportesService.obtenerStockActual(
+          empresaId,
         );
 
-        acumulado.valor_costo += Number(
-          item.valor_costo ?? 0,
+      const resumen =
+        stock.reduce(
+          (
+            acumulado,
+            item,
+          ) => {
+            acumulado.variantes +=
+              1;
+
+            acumulado.unidades +=
+              Number(
+                item.stock_actual ??
+                  0,
+              );
+
+            acumulado.valor_costo +=
+              Number(
+                item.valor_costo ??
+                  0,
+              );
+
+            acumulado.valor_venta +=
+              Number(
+                item.valor_venta ??
+                  0,
+              );
+
+            if (
+              Number(
+                item.stock_actual,
+              ) <=
+              Number(
+                item.stock_minimo,
+              )
+            ) {
+              acumulado.stock_bajo +=
+                1;
+            }
+
+            return acumulado;
+          },
+          {
+            variantes: 0,
+            unidades: 0,
+            stock_bajo: 0,
+            valor_costo: 0,
+            valor_venta: 0,
+          },
         );
 
-        acumulado.valor_venta += Number(
-          item.valor_venta ?? 0,
-        );
+      return res
+        .status(200)
+        .json({
+          success: true,
 
-        if (
-          Number(item.stock_actual) <=
-          Number(item.stock_minimo)
-        ) {
-          acumulado.stock_bajo += 1;
-        }
-
-        return acumulado;
-      },
-      {
-        variantes: 0,
-        unidades: 0,
-        stock_bajo: 0,
-        valor_costo: 0,
-        valor_venta: 0,
-      },
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        resumen,
-        productos: stock,
-      },
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+          data: {
+            resumen,
+            productos:
+              stock,
+          },
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };

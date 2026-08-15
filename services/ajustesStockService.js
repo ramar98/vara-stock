@@ -1,6 +1,15 @@
 const db = require("../config/db");
 
-const obtenerAjustePorId = async (id) => {
+/*
+ * =====================================
+ * OBTENER AJUSTE POR ID
+ * =====================================
+ */
+
+const obtenerAjustePorId = async (
+  id,
+  empresaId,
+) => {
   const [rows] = await db.query(
     `
       SELECT
@@ -37,34 +46,52 @@ const obtenerAjustePorId = async (id) => {
 
       LEFT JOIN colores c
         ON c.id = pv.color_id
+       AND c.empresa_id = p.empresa_id
 
       LEFT JOIN talles t
         ON t.id = pv.talle_id
+       AND t.empresa_id = p.empresa_id
 
       LEFT JOIN usuarios u
         ON u.id = ms.usuario_id
+       AND u.empresa_id = p.empresa_id
 
-      WHERE ms.id = ?
+      WHERE
+        ms.id = ?
         AND ms.tipo = 'AJUSTE'
+        AND p.empresa_id = ?
 
       LIMIT 1
     `,
-    [id],
+    [
+      id,
+      empresaId,
+    ],
   );
 
   return rows[0] ?? null;
 };
 
+/*
+ * =====================================
+ * LISTADO DE AJUSTES
+ * =====================================
+ */
+
 const obtenerAjustes = async ({
+  empresaId,
   fechaDesde = null,
   fechaHasta = null,
   productoId = null,
 } = {}) => {
   const condiciones = [
     "ms.tipo = 'AJUSTE'",
+    "p.empresa_id = ?",
   ];
 
-  const parametros = [];
+  const parametros = [
+    empresaId,
+  ];
 
   if (fechaDesde) {
     condiciones.push(
@@ -126,14 +153,18 @@ const obtenerAjustes = async ({
 
       LEFT JOIN colores c
         ON c.id = pv.color_id
+       AND c.empresa_id = p.empresa_id
 
       LEFT JOIN talles t
         ON t.id = pv.talle_id
+       AND t.empresa_id = p.empresa_id
 
       LEFT JOIN usuarios u
         ON u.id = ms.usuario_id
+       AND u.empresa_id = p.empresa_id
 
-      WHERE ${condiciones.join(" AND ")}
+      WHERE
+        ${condiciones.join(" AND ")}
 
       ORDER BY
         ms.created_at DESC,
@@ -145,41 +176,90 @@ const obtenerAjustes = async ({
   return rows;
 };
 
+/*
+ * =====================================
+ * CREAR AJUSTE
+ * =====================================
+ */
+
 const crearAjuste = async ({
+  empresa_id,
   variante_id,
   nuevo_stock,
   motivo,
   observacion = null,
   usuario_id = null,
 }) => {
-  const connection = await db.getConnection();
+  const empresaId = Number(
+    empresa_id,
+  );
+
+  const connection =
+    await db.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const [variantes] = await connection.query(
-      `
-        SELECT
-          pv.id,
-          pv.stock_actual,
-          pv.producto_id,
-          p.nombre AS producto_nombre
+    /*
+     * =================================
+     * VALIDAR EMPRESA
+     * =================================
+     */
 
-        FROM producto_variantes pv
-
-        INNER JOIN productos p
-          ON p.id = pv.producto_id
-
-        WHERE pv.id = ?
-
-        FOR UPDATE
-      `,
-      [variante_id],
-    );
-
-    if (variantes.length === 0) {
+    if (
+      !Number.isInteger(empresaId) ||
+      empresaId <= 0
+    ) {
       const error = new Error(
-        "La variante seleccionada no existe.",
+        "No se pudo identificar la empresa.",
+      );
+
+      error.code =
+        "EMPRESA_NO_ASIGNADA";
+
+      throw error;
+    }
+
+    /*
+     * =================================
+     * VALIDAR VARIANTE + EMPRESA
+     * =================================
+     */
+
+    const [variantes] =
+      await connection.query(
+        `
+          SELECT
+            pv.id,
+            pv.stock_actual,
+            pv.producto_id,
+
+            p.nombre AS producto_nombre
+
+          FROM producto_variantes pv
+
+          INNER JOIN productos p
+            ON p.id =
+              pv.producto_id
+
+          WHERE
+            pv.id = ?
+            AND p.empresa_id = ?
+            AND p.activo = TRUE
+
+          FOR UPDATE
+        `,
+        [
+          variante_id,
+          empresaId,
+        ],
+      );
+
+    if (
+      variantes.length === 0
+    ) {
+      const error = new Error(
+        "La variante seleccionada no existe o no pertenece a la empresa.",
       );
 
       error.code =
@@ -188,25 +268,39 @@ const crearAjuste = async ({
       throw error;
     }
 
+    /*
+     * =================================
+     * VALIDAR USUARIO
+     * =================================
+     */
+
     if (usuario_id) {
       const [usuarios] =
         await connection.query(
           `
-            SELECT id
+            SELECT
+              id
 
             FROM usuarios
 
-            WHERE id = ?
+            WHERE
+              id = ?
+              AND empresa_id = ?
               AND activo = TRUE
 
             LIMIT 1
           `,
-          [usuario_id],
+          [
+            usuario_id,
+            empresaId,
+          ],
         );
 
-      if (usuarios.length === 0) {
+      if (
+        usuarios.length === 0
+      ) {
         const error = new Error(
-          "El usuario seleccionado no existe o está inactivo.",
+          "El usuario de la sesión no existe, está inactivo o no pertenece a la empresa.",
         );
 
         error.code =
@@ -216,20 +310,27 @@ const crearAjuste = async ({
       }
     }
 
-    const variante = variantes[0];
+    const variante =
+      variantes[0];
 
-    const stockAnterior = Number(
-      variante.stock_actual ?? 0,
-    );
+    const stockAnterior =
+      Number(
+        variante.stock_actual ??
+          0,
+      );
 
-    const stockNuevo = Number(
-      nuevo_stock,
-    );
+    const stockNuevo =
+      Number(
+        nuevo_stock,
+      );
 
     const diferencia =
-      stockNuevo - stockAnterior;
+      stockNuevo -
+      stockAnterior;
 
-    if (diferencia === 0) {
+    if (
+      diferencia === 0
+    ) {
       const error = new Error(
         "El nuevo stock debe ser diferente al stock actual.",
       );
@@ -240,19 +341,58 @@ const crearAjuste = async ({
       throw error;
     }
 
-    await connection.query(
-      `
-        UPDATE producto_variantes
+    /*
+     * =================================
+     * ACTUALIZAR STOCK
+     * =================================
+     *
+     * Protegemos el UPDATE mediante
+     * JOIN con productos.
+     */
 
-        SET stock_actual = ?
+    const [resultadoStock] =
+      await connection.query(
+        `
+          UPDATE producto_variantes pv
 
-        WHERE id = ?
-      `,
-      [
-        stockNuevo,
-        variante_id,
-      ],
-    );
+          INNER JOIN productos p
+            ON p.id =
+              pv.producto_id
+
+          SET
+            pv.stock_actual = ?
+
+          WHERE
+            pv.id = ?
+            AND p.empresa_id = ?
+            AND p.activo = TRUE
+        `,
+        [
+          stockNuevo,
+          variante_id,
+          empresaId,
+        ],
+      );
+
+    if (
+      resultadoStock.affectedRows ===
+      0
+    ) {
+      const error = new Error(
+        "La variante seleccionada no existe o no pertenece a la empresa.",
+      );
+
+      error.code =
+        "VARIANTE_NO_ENCONTRADA";
+
+      throw error;
+    }
+
+    /*
+     * =================================
+     * REGISTRAR MOVIMIENTO
+     * =================================
+     */
 
     const referencia =
       `Ajuste de stock: ${motivo}`;
@@ -272,7 +412,16 @@ const crearAjuste = async ({
             observacion
           )
 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
         `,
         [
           variante_id,
@@ -290,9 +439,11 @@ const crearAjuste = async ({
 
     return obtenerAjustePorId(
       movimientoResult.insertId,
+      empresaId,
     );
   } catch (error) {
     await connection.rollback();
+
     throw error;
   } finally {
     connection.release();

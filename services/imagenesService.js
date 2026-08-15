@@ -1,14 +1,23 @@
 const fs = require("fs");
 const path = require("path");
 
-const db = require("../config/db");
+const db = require(
+  "../config/db",
+);
 
 function normalizarRuta(ruta) {
-  return String(ruta ?? "").replaceAll("\\", "/");
+  return String(
+    ruta ?? "",
+  ).replaceAll("\\", "/");
 }
 
-function obtenerRutaFisica(rutaGuardada) {
-  const rutaNormalizada = normalizarRuta(rutaGuardada);
+function obtenerRutaFisica(
+  rutaGuardada,
+) {
+  const rutaNormalizada =
+    normalizarRuta(
+      rutaGuardada,
+    );
 
   return path.resolve(
     __dirname,
@@ -17,279 +26,622 @@ function obtenerRutaFisica(rutaGuardada) {
   );
 }
 
-const obtenerImagenPorId = async (id) => {
-  const [rows] = await db.query(
-    `
-      SELECT
-        id,
-        producto_id,
-        ruta,
-        principal,
-        created_at
+/*
+ * =====================================
+ * OBTENER IMAGEN POR ID
+ * =====================================
+ */
 
-      FROM producto_imagenes
+const obtenerImagenPorId =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const [rows] =
+      await db.query(
+        `
+          SELECT
+            pi.id,
+            pi.producto_id,
+            pi.ruta,
+            pi.principal,
+            pi.created_at
 
-      WHERE id = ?
+          FROM producto_imagenes pi
 
-      LIMIT 1
-    `,
-    [id],
-  );
+          INNER JOIN productos p
+            ON p.id =
+              pi.producto_id
 
-  return rows[0] ?? null;
-};
+          WHERE
+            pi.id = ?
+            AND p.empresa_id = ?
 
-const obtenerImagenes = async (productoId) => {
-  const [rows] = await db.query(
-    `
-      SELECT
-        id,
-        producto_id,
-        ruta,
-        principal,
-        created_at
-
-      FROM producto_imagenes
-
-      WHERE producto_id = ?
-
-      ORDER BY
-        principal DESC,
-        id ASC
-    `,
-    [productoId],
-  );
-
-  return rows;
-};
-
-const guardarImagen = async ({
-  producto_id,
-  ruta,
-  principal = false,
-}) => {
-  const connection = await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const [producto] = await connection.query(
-      `
-        SELECT id
-
-        FROM productos
-
-        WHERE id = ?
-          AND activo = TRUE
-
-        LIMIT 1
-      `,
-      [producto_id],
-    );
-
-    if (producto.length === 0) {
-      const error = new Error(
-        "El producto seleccionado no existe.",
+          LIMIT 1
+        `,
+        [
+          id,
+          empresaId,
+        ],
       );
 
-      error.code = "PRODUCTO_NO_ENCONTRADO";
+    return (
+      rows[0] ??
+      null
+    );
+  };
 
-      throw error;
+/*
+ * =====================================
+ * OBTENER IMÁGENES DEL PRODUCTO
+ * =====================================
+ */
+
+const obtenerImagenes =
+  async (
+    productoId,
+    empresaId,
+  ) => {
+    /*
+     * Primero comprobamos que el
+     * producto pertenezca a la empresa.
+     */
+
+    const [productos] =
+      await db.query(
+        `
+          SELECT
+            id
+
+          FROM productos
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
+            AND activo = TRUE
+
+          LIMIT 1
+        `,
+        [
+          productoId,
+          empresaId,
+        ],
+      );
+
+    if (
+      productos.length === 0
+    ) {
+      return [];
     }
 
-    const [imagenesExistentes] =
-      await connection.query(
+    const [rows] =
+      await db.query(
         `
-          SELECT COUNT(*) AS cantidad
+          SELECT
+            pi.id,
+            pi.producto_id,
+            pi.ruta,
+            pi.principal,
+            pi.created_at
 
-          FROM producto_imagenes
+          FROM producto_imagenes pi
 
-          WHERE producto_id = ?
+          INNER JOIN productos p
+            ON p.id =
+              pi.producto_id
+
+          WHERE
+            pi.producto_id = ?
+            AND p.empresa_id = ?
+
+          ORDER BY
+            pi.principal DESC,
+            pi.id ASC
         `,
-        [producto_id],
+        [
+          productoId,
+          empresaId,
+        ],
       );
 
-    const esPrimeraImagen =
-      Number(imagenesExistentes[0].cantidad) === 0;
+    return rows;
+  };
 
-    const debeSerPrincipal =
-      esPrimeraImagen || Boolean(principal);
+/*
+ * =====================================
+ * GUARDAR IMAGEN
+ * =====================================
+ */
 
-    if (debeSerPrincipal) {
-      await connection.query(
-        `
-          UPDATE producto_imagenes
+const guardarImagen =
+  async (
+    {
+      producto_id,
+      ruta,
+      principal = false,
+    },
+    empresaId,
+  ) => {
+    const connection =
+      await db.getConnection();
 
-          SET principal = FALSE
+    try {
+      await connection.beginTransaction();
 
-          WHERE producto_id = ?
-        `,
-        [producto_id],
-      );
-    }
+      /*
+       * VALIDAR PRODUCTO + EMPRESA
+       */
 
-    const rutaNormalizada = normalizarRuta(ruta);
-
-    const [result] = await connection.query(
-      `
-        INSERT INTO producto_imagenes
-        (
-          producto_id,
-          ruta,
-          principal
-        )
-
-        VALUES (?, ?, ?)
-      `,
-      [
-        producto_id,
-        rutaNormalizada,
-        debeSerPrincipal,
-      ],
-    );
-
-    await connection.commit();
-
-    return obtenerImagenPorId(result.insertId);
-  } catch (error) {
-    await connection.rollback();
-
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
-
-const marcarComoPrincipal = async (id) => {
-  const imagen = await obtenerImagenPorId(id);
-
-  if (!imagen) {
-    return null;
-  }
-
-  const connection = await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    await connection.query(
-      `
-        UPDATE producto_imagenes
-
-        SET principal = FALSE
-
-        WHERE producto_id = ?
-      `,
-      [imagen.producto_id],
-    );
-
-    await connection.query(
-      `
-        UPDATE producto_imagenes
-
-        SET principal = TRUE
-
-        WHERE id = ?
-      `,
-      [id],
-    );
-
-    await connection.commit();
-
-    return obtenerImagenPorId(id);
-  } catch (error) {
-    await connection.rollback();
-
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
-
-const eliminarImagen = async (id) => {
-  const imagen = await obtenerImagenPorId(id);
-
-  if (!imagen) {
-    return {
-      eliminada: false,
-      motivo: "NO_ENCONTRADA",
-    };
-  }
-
-  const connection = await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    await connection.query(
-      `
-        DELETE FROM producto_imagenes
-
-        WHERE id = ?
-      `,
-      [id],
-    );
-
-    if (Boolean(imagen.principal)) {
-      const [imagenesRestantes] =
+      const [producto] =
         await connection.query(
           `
-            SELECT id
+            SELECT
+              id
 
-            FROM producto_imagenes
+            FROM productos
 
-            WHERE producto_id = ?
-
-            ORDER BY id ASC
+            WHERE
+              id = ?
+              AND empresa_id = ?
+              AND activo = TRUE
 
             LIMIT 1
           `,
-          [imagen.producto_id],
+          [
+            producto_id,
+            empresaId,
+          ],
         );
 
-      if (imagenesRestantes.length > 0) {
+      if (
+        producto.length === 0
+      ) {
+        const error =
+          new Error(
+            "El producto seleccionado no existe o no pertenece a la empresa.",
+          );
+
+        error.code =
+          "PRODUCTO_NO_ENCONTRADO";
+
+        throw error;
+      }
+
+      /*
+       * CONTAR IMÁGENES EXISTENTES
+       */
+
+      const [imagenesExistentes] =
         await connection.query(
           `
-            UPDATE producto_imagenes
+            SELECT
+              COUNT(*) AS cantidad
 
-            SET principal = TRUE
+            FROM producto_imagenes pi
 
-            WHERE id = ?
+            INNER JOIN productos p
+              ON p.id =
+                pi.producto_id
+
+            WHERE
+              pi.producto_id = ?
+              AND p.empresa_id = ?
           `,
-          [imagenesRestantes[0].id],
+          [
+            producto_id,
+            empresaId,
+          ],
+        );
+
+      const esPrimeraImagen =
+        Number(
+          imagenesExistentes[0]
+            .cantidad,
+        ) === 0;
+
+      const debeSerPrincipal =
+        esPrimeraImagen ||
+        Boolean(
+          principal,
+        );
+
+      /*
+       * SI SERÁ PRINCIPAL,
+       * DESMARCAMOS LAS DEMÁS
+       */
+
+      if (
+        debeSerPrincipal
+      ) {
+        await connection.query(
+          `
+            UPDATE producto_imagenes pi
+
+            INNER JOIN productos p
+              ON p.id =
+                pi.producto_id
+
+            SET
+              pi.principal = FALSE
+
+            WHERE
+              pi.producto_id = ?
+              AND p.empresa_id = ?
+          `,
+          [
+            producto_id,
+            empresaId,
+          ],
         );
       }
+
+      const rutaNormalizada =
+        normalizarRuta(
+          ruta,
+        );
+
+      /*
+       * INSERT
+       */
+
+      const [result] =
+        await connection.query(
+          `
+            INSERT INTO producto_imagenes
+            (
+              producto_id,
+              ruta,
+              principal
+            )
+
+            VALUES (
+              ?,
+              ?,
+              ?
+            )
+          `,
+          [
+            producto_id,
+            rutaNormalizada,
+            debeSerPrincipal,
+          ],
+        );
+
+      await connection.commit();
+
+      return obtenerImagenPorId(
+        result.insertId,
+        empresaId,
+      );
+    } catch (error) {
+      await connection.rollback();
+
+      /*
+       * IMPORTANTE:
+       *
+       * Si la BD rechazó la imagen
+       * después de que multer ya creó
+       * el archivo, intentamos eliminar
+       * el archivo físico para no dejar
+       * archivos huérfanos.
+       */
+
+      try {
+        const rutaFisica =
+          obtenerRutaFisica(
+            ruta,
+          );
+
+        if (
+          fs.existsSync(
+            rutaFisica,
+          )
+        ) {
+          fs.unlinkSync(
+            rutaFisica,
+          );
+        }
+      } catch (
+        errorArchivo
+      ) {
+        console.error(
+          "No se pudo eliminar el archivo de una carga fallida:",
+          errorArchivo,
+        );
+      }
+
+      throw error;
+    } finally {
+      connection.release();
+    }
+  };
+
+/*
+ * =====================================
+ * MARCAR COMO PRINCIPAL
+ * =====================================
+ */
+
+const marcarComoPrincipal =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const imagen =
+      await obtenerImagenPorId(
+        id,
+        empresaId,
+      );
+
+    if (!imagen) {
+      return null;
     }
 
-    await connection.commit();
-
-    const rutaFisica = obtenerRutaFisica(
-      imagen.ruta,
-    );
+    const connection =
+      await db.getConnection();
 
     try {
-      if (fs.existsSync(rutaFisica)) {
-        fs.unlinkSync(rutaFisica);
-      }
-    } catch (errorArchivo) {
-      console.error(
-        "No se pudo eliminar el archivo físico:",
-        errorArchivo,
+      await connection.beginTransaction();
+
+      /*
+       * Desmarcamos sólo imágenes
+       * del mismo producto y empresa.
+       */
+
+      await connection.query(
+        `
+          UPDATE producto_imagenes pi
+
+          INNER JOIN productos p
+            ON p.id =
+              pi.producto_id
+
+          SET
+            pi.principal = FALSE
+
+          WHERE
+            pi.producto_id = ?
+            AND p.empresa_id = ?
+        `,
+        [
+          imagen.producto_id,
+          empresaId,
+        ],
       );
+
+      /*
+       * Marcamos principal sólo si
+       * sigue perteneciendo a empresa.
+       */
+
+      const [resultado] =
+        await connection.query(
+          `
+            UPDATE producto_imagenes pi
+
+            INNER JOIN productos p
+              ON p.id =
+                pi.producto_id
+
+            SET
+              pi.principal = TRUE
+
+            WHERE
+              pi.id = ?
+              AND p.empresa_id = ?
+          `,
+          [
+            id,
+            empresaId,
+          ],
+        );
+
+      if (
+        resultado.affectedRows === 0
+      ) {
+        await connection.rollback();
+
+        return null;
+      }
+
+      await connection.commit();
+
+      return obtenerImagenPorId(
+        id,
+        empresaId,
+      );
+    } catch (error) {
+      await connection.rollback();
+
+      throw error;
+    } finally {
+      connection.release();
+    }
+  };
+
+/*
+ * =====================================
+ * ELIMINAR IMAGEN
+ * =====================================
+ */
+
+const eliminarImagen =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const imagen =
+      await obtenerImagenPorId(
+        id,
+        empresaId,
+      );
+
+    if (!imagen) {
+      return {
+        eliminada:
+          false,
+
+        motivo:
+          "NO_ENCONTRADA",
+      };
     }
 
-    return {
-      eliminada: true,
-      producto_id: imagen.producto_id,
-    };
-  } catch (error) {
-    await connection.rollback();
+    const connection =
+      await db.getConnection();
 
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
+    try {
+      await connection.beginTransaction();
+
+      /*
+       * DELETE protegido por empresa.
+       */
+
+      const [resultado] =
+        await connection.query(
+          `
+            DELETE pi
+
+            FROM producto_imagenes pi
+
+            INNER JOIN productos p
+              ON p.id =
+                pi.producto_id
+
+            WHERE
+              pi.id = ?
+              AND p.empresa_id = ?
+          `,
+          [
+            id,
+            empresaId,
+          ],
+        );
+
+      if (
+        resultado.affectedRows === 0
+      ) {
+        await connection.rollback();
+
+        return {
+          eliminada:
+            false,
+
+          motivo:
+            "NO_ENCONTRADA",
+        };
+      }
+
+      /*
+       * Si eliminamos la principal,
+       * elegimos otra.
+       */
+
+      if (
+        Boolean(
+          imagen.principal,
+        )
+      ) {
+        const [imagenesRestantes] =
+          await connection.query(
+            `
+              SELECT
+                pi.id
+
+              FROM producto_imagenes pi
+
+              INNER JOIN productos p
+                ON p.id =
+                  pi.producto_id
+
+              WHERE
+                pi.producto_id = ?
+                AND p.empresa_id = ?
+
+              ORDER BY
+                pi.id ASC
+
+              LIMIT 1
+            `,
+            [
+              imagen.producto_id,
+              empresaId,
+            ],
+          );
+
+        if (
+          imagenesRestantes.length >
+          0
+        ) {
+          await connection.query(
+            `
+              UPDATE producto_imagenes pi
+
+              INNER JOIN productos p
+                ON p.id =
+                  pi.producto_id
+
+              SET
+                pi.principal = TRUE
+
+              WHERE
+                pi.id = ?
+                AND p.empresa_id = ?
+            `,
+            [
+              imagenesRestantes[0]
+                .id,
+
+              empresaId,
+            ],
+          );
+        }
+      }
+
+      await connection.commit();
+
+      /*
+       * ARCHIVO FÍSICO
+       */
+
+      const rutaFisica =
+        obtenerRutaFisica(
+          imagen.ruta,
+        );
+
+      try {
+        if (
+          fs.existsSync(
+            rutaFisica,
+          )
+        ) {
+          fs.unlinkSync(
+            rutaFisica,
+          );
+        }
+      } catch (
+        errorArchivo
+      ) {
+        console.error(
+          "No se pudo eliminar el archivo físico:",
+          errorArchivo,
+        );
+      }
+
+      return {
+        eliminada:
+          true,
+
+        producto_id:
+          imagen.producto_id,
+      };
+    } catch (error) {
+      await connection.rollback();
+
+      throw error;
+    } finally {
+      connection.release();
+    }
+  };
 
 module.exports = {
   obtenerImagenPorId,

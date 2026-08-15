@@ -22,6 +22,22 @@ function convertirId(valor) {
   return id;
 }
 
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
 function validarFecha(valor) {
   if (!valor) {
     return true;
@@ -133,16 +149,14 @@ function validarVenta(
 ) {
   const errores = [];
 
-  let clienteId =
-    null;
+  let clienteId = null;
 
   if (
     body.cliente_id !==
       undefined &&
     body.cliente_id !==
       null &&
-    body.cliente_id !==
-      ""
+    body.cliente_id !== ""
   ) {
     clienteId =
       convertirId(
@@ -158,8 +172,7 @@ function validarVenta(
 
   const descuento =
     Number(
-      body.descuento ??
-        0,
+      body.descuento ?? 0,
     );
 
   if (
@@ -175,8 +188,7 @@ function validarVenta(
 
   const metodoPago =
     String(
-      body.metodo_pago ??
-        "",
+      body.metodo_pago ?? "",
     )
       .trim()
       .toUpperCase();
@@ -202,8 +214,7 @@ function validarVenta(
 
   return {
     valido:
-      errores.length ===
-      0,
+      errores.length === 0,
 
     errores,
 
@@ -243,6 +254,24 @@ function validarVenta(
   };
 }
 
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
 function responderError(
   res,
   error,
@@ -257,7 +286,7 @@ function responderError(
         success: false,
 
         message:
-          "El cliente seleccionado no existe.",
+          "El cliente seleccionado no existe o no pertenece a la empresa.",
 
         error: {
           code:
@@ -276,7 +305,7 @@ function responderError(
         success: false,
 
         message:
-          "El usuario seleccionado no existe o está inactivo.",
+          "El usuario seleccionado no existe, está inactivo o no pertenece a la empresa.",
 
         error: {
           code:
@@ -377,7 +406,7 @@ function responderError(
 
 /*
  * =====================================
- * LISTADO DE VENTAS
+ * LISTADO
  * =====================================
  */
 
@@ -386,22 +415,27 @@ exports.obtenerVentas =
     req,
     res,
   ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     const {
       fecha_desde:
-        fechaDesde =
-          null,
+        fechaDesde = null,
 
       fecha_hasta:
-        fechaHasta =
-          null,
+        fechaHasta = null,
 
       cliente_id:
-        clienteIdRaw =
-          null,
+        clienteIdRaw = null,
 
       metodo_pago:
-        metodoPagoRaw =
-          null,
+        metodoPagoRaw = null,
     } = req.query;
 
     if (
@@ -502,6 +536,7 @@ exports.obtenerVentas =
     try {
       const ventas =
         await ventasService.obtenerVentas({
+          empresaId,
           fechaDesde,
           fechaHasta,
           clienteId,
@@ -524,7 +559,7 @@ exports.obtenerVentas =
 
 /*
  * =====================================
- * DETALLE DE VENTA
+ * DETALLE
  * =====================================
  */
 
@@ -549,10 +584,20 @@ exports.obtenerVenta =
         });
     }
 
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const venta =
         await ventasService.obtenerVentaPorId(
           id,
+          empresaId,
         );
 
       if (!venta) {
@@ -583,7 +628,7 @@ exports.obtenerVenta =
 
 /*
  * =====================================
- * CREAR VENTA
+ * CREAR
  * =====================================
  */
 
@@ -592,11 +637,15 @@ exports.crearVenta =
     req,
     res,
   ) => {
-    /*
-     * Primero validamos solamente
-     * los datos comerciales enviados
-     * desde el frontend.
-     */
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     const validacion =
       validarVenta(
         req.body,
@@ -618,16 +667,6 @@ exports.crearVenta =
         });
     }
 
-    /*
-     * IMPORTANTE:
-     *
-     * El usuario NO se toma de:
-     *
-     * req.body.usuario_id
-     *
-     * Se toma exclusivamente del
-     * usuario autenticado por JWT.
-     */
     const usuarioId =
       req.usuario?.id ??
       req.usuarioId ??
@@ -651,6 +690,9 @@ exports.crearVenta =
 
     const datosVenta = {
       ...validacion.datos,
+
+      empresa_id:
+        empresaId,
 
       usuario_id:
         Number(

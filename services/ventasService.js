@@ -1,10 +1,14 @@
 const db = require("../config/db");
 
-const obtenerVentaPorId = async (id) => {
+const obtenerVentaPorId = async (
+  id,
+  empresaId,
+) => {
   const [ventas] = await db.query(
     `
       SELECT
         v.id,
+        v.empresa_id,
         v.cliente_id,
         v.fecha,
         v.subtotal,
@@ -24,15 +28,22 @@ const obtenerVentaPorId = async (id) => {
 
       LEFT JOIN clientes c
         ON c.id = v.cliente_id
+       AND c.empresa_id = v.empresa_id
 
       LEFT JOIN usuarios u
         ON u.id = v.usuario_id
+       AND u.empresa_id = v.empresa_id
 
-      WHERE v.id = ?
+      WHERE
+        v.id = ?
+        AND v.empresa_id = ?
 
       LIMIT 1
     `,
-    [id],
+    [
+      id,
+      empresaId,
+    ],
   );
 
   if (ventas.length === 0) {
@@ -60,6 +71,9 @@ const obtenerVentaPorId = async (id) => {
 
       FROM ventas_detalle vd
 
+      INNER JOIN ventas v
+        ON v.id = vd.venta_id
+
       INNER JOIN producto_variantes pv
         ON pv.id = vd.variante_id
 
@@ -68,18 +82,27 @@ const obtenerVentaPorId = async (id) => {
 
       LEFT JOIN colores c
         ON c.id = pv.color_id
+       AND c.empresa_id = p.empresa_id
 
       LEFT JOIN talles t
         ON t.id = pv.talle_id
+       AND t.empresa_id = p.empresa_id
 
-      WHERE vd.venta_id = ?
+      WHERE
+        vd.venta_id = ?
+        AND v.empresa_id = ?
+        AND p.empresa_id = ?
 
       ORDER BY
         p.nombre ASC,
         c.nombre ASC,
         t.nombre ASC
     `,
-    [id],
+    [
+      id,
+      empresaId,
+      empresaId,
+    ],
   );
 
   return {
@@ -89,43 +112,69 @@ const obtenerVentaPorId = async (id) => {
 };
 
 const obtenerVentas = async ({
+  empresaId,
   fechaDesde = null,
   fechaHasta = null,
   clienteId = null,
   metodoPago = null,
 } = {}) => {
-  const condiciones = [];
-  const parametros = [];
+  const condiciones = [
+    "v.empresa_id = ?",
+  ];
+
+  const parametros = [
+    empresaId,
+  ];
 
   if (fechaDesde) {
-    condiciones.push("DATE(v.fecha) >= ?");
-    parametros.push(fechaDesde);
+    condiciones.push(
+      "DATE(v.fecha) >= ?",
+    );
+
+    parametros.push(
+      fechaDesde,
+    );
   }
 
   if (fechaHasta) {
-    condiciones.push("DATE(v.fecha) <= ?");
-    parametros.push(fechaHasta);
+    condiciones.push(
+      "DATE(v.fecha) <= ?",
+    );
+
+    parametros.push(
+      fechaHasta,
+    );
   }
 
   if (clienteId) {
-    condiciones.push("v.cliente_id = ?");
-    parametros.push(clienteId);
+    condiciones.push(
+      "v.cliente_id = ?",
+    );
+
+    parametros.push(
+      clienteId,
+    );
   }
 
   if (metodoPago) {
-    condiciones.push("v.metodo_pago = ?");
-    parametros.push(metodoPago);
+    condiciones.push(
+      "v.metodo_pago = ?",
+    );
+
+    parametros.push(
+      metodoPago,
+    );
   }
 
-  const where =
-    condiciones.length > 0
-      ? `WHERE ${condiciones.join(" AND ")}`
-      : "";
+  const where = `
+    WHERE ${condiciones.join(" AND ")}
+  `;
 
   const [rows] = await db.query(
     `
       SELECT
         v.id,
+        v.empresa_id,
         v.cliente_id,
         v.fecha,
         v.subtotal,
@@ -150,9 +199,11 @@ const obtenerVentas = async ({
 
       LEFT JOIN clientes c
         ON c.id = v.cliente_id
+       AND c.empresa_id = v.empresa_id
 
       LEFT JOIN usuarios u
         ON u.id = v.usuario_id
+       AND u.empresa_id = v.empresa_id
 
       LEFT JOIN ventas_detalle vd
         ON vd.venta_id = v.id
@@ -161,6 +212,7 @@ const obtenerVentas = async ({
 
       GROUP BY
         v.id,
+        v.empresa_id,
         v.cliente_id,
         v.fecha,
         v.subtotal,
@@ -184,6 +236,7 @@ const obtenerVentas = async ({
 
 const crearVenta = async (data) => {
   const {
+    empresa_id,
     cliente_id = null,
     descuento = 0,
     metodo_pago,
@@ -191,59 +244,121 @@ const crearVenta = async (data) => {
     productos,
   } = data;
 
-  const connection = await db.getConnection();
+  const empresaId = Number(
+    empresa_id,
+  );
+
+  const connection =
+    await db.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    if (cliente_id) {
-      const [clientes] = await connection.query(
-        `
-          SELECT id
-          FROM clientes
-          WHERE id = ?
-          LIMIT 1
-        `,
-        [cliente_id],
+    if (
+      !Number.isInteger(empresaId) ||
+      empresaId <= 0
+    ) {
+      const error = new Error(
+        "No se pudo identificar la empresa.",
       );
 
-      if (clientes.length === 0) {
-        const error = new Error(
-          "El cliente seleccionado no existe.",
+      error.code =
+        "EMPRESA_NO_ASIGNADA";
+
+      throw error;
+    }
+
+    /*
+     * CLIENTE
+     */
+
+    if (cliente_id) {
+      const [clientes] =
+        await connection.query(
+          `
+            SELECT
+              id
+
+            FROM clientes
+
+            WHERE
+              id = ?
+              AND empresa_id = ?
+
+            LIMIT 1
+          `,
+          [
+            cliente_id,
+            empresaId,
+          ],
         );
 
-        error.code = "CLIENTE_NO_ENCONTRADO";
+      if (
+        clientes.length === 0
+      ) {
+        const error = new Error(
+          "El cliente seleccionado no existe o no pertenece a la empresa.",
+        );
+
+        error.code =
+          "CLIENTE_NO_ENCONTRADO";
+
         throw error;
       }
     }
 
-    if (usuario_id) {
-      const [usuarios] = await connection.query(
-        `
-          SELECT id
-          FROM usuarios
-          WHERE id = ?
-            AND activo = TRUE
-          LIMIT 1
-        `,
-        [usuario_id],
-      );
+    /*
+     * USUARIO
+     */
 
-      if (usuarios.length === 0) {
-        const error = new Error(
-          "El usuario seleccionado no existe o está inactivo.",
+    if (usuario_id) {
+      const [usuarios] =
+        await connection.query(
+          `
+            SELECT
+              id
+
+            FROM usuarios
+
+            WHERE
+              id = ?
+              AND empresa_id = ?
+              AND activo = TRUE
+
+            LIMIT 1
+          `,
+          [
+            usuario_id,
+            empresaId,
+          ],
         );
 
-        error.code = "USUARIO_NO_ENCONTRADO";
+      if (
+        usuarios.length === 0
+      ) {
+        const error = new Error(
+          "El usuario seleccionado no existe, está inactivo o no pertenece a la empresa.",
+        );
+
+        error.code =
+          "USUARIO_NO_ENCONTRADO";
+
         throw error;
       }
     }
 
     let subtotalVenta = 0;
 
-    const productosProcesados = [];
+    const productosProcesados =
+      [];
 
-    for (const item of productos) {
+    /*
+     * VARIANTES
+     */
+
+    for (
+      const item of productos
+    ) {
       const varianteId = Number(
         item.variante_id,
       );
@@ -260,22 +375,36 @@ const crearVenta = async (data) => {
         await connection.query(
           `
             SELECT
-              id,
-              stock_actual,
-              precio_venta
+              pv.id,
+              pv.producto_id,
+              pv.stock_actual,
+              pv.precio_venta,
 
-            FROM producto_variantes
+              p.nombre AS producto_nombre
 
-            WHERE id = ?
+            FROM producto_variantes pv
+
+            INNER JOIN productos p
+              ON p.id = pv.producto_id
+
+            WHERE
+              pv.id = ?
+              AND p.empresa_id = ?
+              AND p.activo = TRUE
 
             FOR UPDATE
           `,
-          [varianteId],
+          [
+            varianteId,
+            empresaId,
+          ],
         );
 
-      if (variantes.length === 0) {
+      if (
+        variantes.length === 0
+      ) {
         const error = new Error(
-          `La variante ${varianteId} no existe.`,
+          `La variante ${varianteId} no existe o no pertenece a la empresa.`,
         );
 
         error.code =
@@ -284,44 +413,61 @@ const crearVenta = async (data) => {
         throw error;
       }
 
-      const variante = variantes[0];
+      const variante =
+        variantes[0];
 
       const stockAnterior = Number(
         variante.stock_actual ?? 0,
       );
 
-      if (stockAnterior < cantidad) {
+      if (
+        stockAnterior < cantidad
+      ) {
         const error = new Error(
           `Stock insuficiente para la variante ${varianteId}. Disponible: ${stockAnterior}.`,
         );
 
-        error.code = "STOCK_INSUFICIENTE";
-        error.varianteId = varianteId;
-        error.stockDisponible = stockAnterior;
+        error.code =
+          "STOCK_INSUFICIENTE";
+
+        error.varianteId =
+          varianteId;
+
+        error.stockDisponible =
+          stockAnterior;
 
         throw error;
       }
 
       const precioFinal =
-        Number.isFinite(precioUnitario) &&
+        Number.isFinite(
+          precioUnitario,
+        ) &&
         precioUnitario >= 0
           ? precioUnitario
           : Number(
-              variante.precio_venta ?? 0,
+              variante.precio_venta ??
+                0,
             );
 
       const subtotal =
-        cantidad * precioFinal;
+        cantidad *
+        precioFinal;
 
       const stockNuevo =
-        stockAnterior - cantidad;
+        stockAnterior -
+        cantidad;
 
-      subtotalVenta += subtotal;
+      subtotalVenta +=
+        subtotal;
 
       productosProcesados.push({
         varianteId,
+        productoId:
+          variante.producto_id,
         cantidad,
-        precioUnitario: precioFinal,
+        precioUnitario:
+          precioFinal,
         subtotal,
         stockAnterior,
         stockNuevo,
@@ -329,18 +475,26 @@ const crearVenta = async (data) => {
     }
 
     const descuentoNormalizado =
-      Number(descuento ?? 0);
+      Number(
+        descuento ?? 0,
+      );
 
     const totalVenta = Math.max(
-      subtotalVenta - descuentoNormalizado,
+      subtotalVenta -
+        descuentoNormalizado,
       0,
     );
+
+    /*
+     * INSERT VENTA
+     */
 
     const [ventaResult] =
       await connection.query(
         `
           INSERT INTO ventas
           (
+            empresa_id,
             cliente_id,
             fecha,
             subtotal,
@@ -352,6 +506,7 @@ const crearVenta = async (data) => {
 
           VALUES (
             ?,
+            ?,
             CURRENT_TIMESTAMP,
             ?,
             ?,
@@ -361,6 +516,7 @@ const crearVenta = async (data) => {
           )
         `,
         [
+          empresaId,
           cliente_id,
           subtotalVenta,
           descuentoNormalizado,
@@ -373,7 +529,14 @@ const crearVenta = async (data) => {
     const ventaId =
       ventaResult.insertId;
 
-    for (const item of productosProcesados) {
+    /*
+     * DETALLE + STOCK
+     */
+
+    for (
+      const item
+      of productosProcesados
+    ) {
       await connection.query(
         `
           INSERT INTO ventas_detalle
@@ -385,7 +548,13 @@ const crearVenta = async (data) => {
             subtotal
           )
 
-          VALUES (?, ?, ?, ?, ?)
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
         `,
         [
           ventaId,
@@ -396,19 +565,60 @@ const crearVenta = async (data) => {
         ],
       );
 
-      await connection.query(
-        `
-          UPDATE producto_variantes
+      /*
+       * producto_variantes no tiene
+       * empresa_id.
+       *
+       * Por eso protegemos el UPDATE
+       * mediante EXISTS contra productos.
+       */
 
-          SET stock_actual = ?
+      const [stockResult] =
+        await connection.query(
+          `
+            UPDATE producto_variantes pv
 
-          WHERE id = ?
-        `,
-        [
-          item.stockNuevo,
-          item.varianteId,
-        ],
-      );
+            SET
+              pv.stock_actual = ?
+
+            WHERE
+              pv.id = ?
+
+              AND EXISTS (
+                SELECT 1
+
+                FROM productos p
+
+                WHERE
+                  p.id = pv.producto_id
+                  AND p.empresa_id = ?
+                  AND p.activo = TRUE
+              )
+          `,
+          [
+            item.stockNuevo,
+            item.varianteId,
+            empresaId,
+          ],
+        );
+
+      if (
+        stockResult.affectedRows ===
+        0
+      ) {
+        const error = new Error(
+          `No se pudo actualizar la variante ${item.varianteId}.`,
+        );
+
+        error.code =
+          "VARIANTE_NO_ENCONTRADA";
+
+        throw error;
+      }
+
+      /*
+       * MOVIMIENTO DE STOCK
+       */
 
       await connection.query(
         `
@@ -424,7 +634,16 @@ const crearVenta = async (data) => {
             observacion
           )
 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
         `,
         [
           item.varianteId,
@@ -443,9 +662,11 @@ const crearVenta = async (data) => {
 
     return await obtenerVentaPorId(
       ventaId,
+      empresaId,
     );
   } catch (error) {
     await connection.rollback();
+
     throw error;
   } finally {
     connection.release();

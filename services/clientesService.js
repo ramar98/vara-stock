@@ -1,209 +1,348 @@
-const db = require("../config/db");
+const db = require(
+  "../config/db",
+);
 
-const obtenerClientes = async ({
-  busqueda = "",
-} = {}) => {
-  const texto = String(busqueda ?? "").trim();
+/*
+ * =====================================
+ * OBTENER CLIENTES
+ * =====================================
+ */
 
-  const parametros = [];
-  let where = "";
+const obtenerClientes =
+  async ({
+    empresaId,
+    busqueda = "",
+  } = {}) => {
+    const texto =
+      String(
+        busqueda ?? "",
+      ).trim();
 
-  if (texto) {
-    where = `
-      WHERE
-        nombre LIKE ?
-        OR telefono LIKE ?
-        OR email LIKE ?
+    const parametros = [
+      empresaId,
+    ];
+
+    let where = `
+      WHERE empresa_id = ?
     `;
 
-    const filtro = `%${texto}%`;
+    if (texto) {
+      where += `
+        AND (
+          nombre LIKE ?
+          OR telefono LIKE ?
+          OR email LIKE ?
+        )
+      `;
 
-    parametros.push(
-      filtro,
-      filtro,
-      filtro,
-    );
-  }
+      const filtro =
+        `%${texto}%`;
 
-  const [rows] = await db.query(
-    `
-      SELECT
-        id,
-        nombre,
-        telefono,
-        email,
-        direccion,
-        created_at
+      parametros.push(
+        filtro,
+        filtro,
+        filtro,
+      );
+    }
 
-      FROM clientes
+    const [rows] =
+      await db.query(
+        `
+          SELECT
+            id,
+            empresa_id,
+            nombre,
+            telefono,
+            email,
+            direccion,
+            created_at
 
-      ${where}
+          FROM clientes
 
-      ORDER BY nombre ASC
-    `,
-    parametros,
-  );
+          ${where}
 
-  return rows;
-};
+          ORDER BY
+            nombre ASC
+        `,
+        parametros,
+      );
 
-const obtenerClientePorId = async (id) => {
-  const [rows] = await db.query(
-    `
-      SELECT
-        id,
-        nombre,
-        telefono,
-        email,
-        direccion,
-        created_at
-
-      FROM clientes
-
-      WHERE id = ?
-
-      LIMIT 1
-    `,
-    [id],
-  );
-
-  return rows[0] ?? null;
-};
-
-const crearCliente = async (data) => {
-  const {
-    nombre,
-    telefono = null,
-    email = null,
-    direccion = null,
-  } = data;
-
-  const [result] = await db.query(
-    `
-      INSERT INTO clientes
-      (
-        nombre,
-        telefono,
-        email,
-        direccion
-      )
-
-      VALUES (?, ?, ?, ?)
-    `,
-    [
-      nombre,
-      telefono,
-      email,
-      direccion,
-    ],
-  );
-
-  return obtenerClientePorId(
-    result.insertId,
-  );
-};
-
-const actualizarCliente = async (
-  id,
-  data,
-) => {
-  const {
-    nombre,
-    telefono = null,
-    email = null,
-    direccion = null,
-  } = data;
-
-  const [result] = await db.query(
-    `
-      UPDATE clientes
-
-      SET
-        nombre = ?,
-        telefono = ?,
-        email = ?,
-        direccion = ?
-
-      WHERE id = ?
-    `,
-    [
-      nombre,
-      telefono,
-      email,
-      direccion,
-      id,
-    ],
-  );
-
-  if (result.affectedRows === 0) {
-    return null;
-  }
-
-  return obtenerClientePorId(id);
-};
-
-const clienteTieneVentas = async (id) => {
-  const [rows] = await db.query(
-    `
-      SELECT COUNT(*) AS cantidad
-
-      FROM ventas
-
-      WHERE cliente_id = ?
-    `,
-    [id],
-  );
-
-  return Number(
-    rows[0]?.cantidad ?? 0,
-  ) > 0;
-};
-
-const eliminarCliente = async (id) => {
-  const cliente =
-    await obtenerClientePorId(id);
-
-  if (!cliente) {
-    return {
-      eliminado: false,
-      motivo: "NO_ENCONTRADO",
-    };
-  }
-
-  const tieneVentas =
-    await clienteTieneVentas(id);
-
-  if (tieneVentas) {
-    return {
-      eliminado: false,
-      motivo: "TIENE_VENTAS",
-    };
-  }
-
-  const [result] = await db.query(
-    `
-      DELETE FROM clientes
-
-      WHERE id = ?
-    `,
-    [id],
-  );
-
-  return {
-    eliminado:
-      result.affectedRows > 0,
-
-    motivo:
-      result.affectedRows > 0
-        ? null
-        : "NO_ENCONTRADO",
+    return rows;
   };
-};
+
+/*
+ * =====================================
+ * OBTENER CLIENTE POR ID
+ * =====================================
+ */
+
+const obtenerClientePorId =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const [rows] =
+      await db.query(
+        `
+          SELECT
+            id,
+            empresa_id,
+            nombre,
+            telefono,
+            email,
+            direccion,
+            created_at
+
+          FROM clientes
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
+
+          LIMIT 1
+        `,
+        [
+          id,
+          empresaId,
+        ],
+      );
+
+    return (
+      rows[0] ??
+      null
+    );
+  };
+
+/*
+ * =====================================
+ * CREAR CLIENTE
+ * =====================================
+ */
+
+const crearCliente =
+  async (
+    empresaId,
+    data,
+  ) => {
+    const {
+      nombre,
+      telefono = null,
+      email = null,
+      direccion = null,
+    } = data;
+
+    const [result] =
+      await db.query(
+        `
+          INSERT INTO clientes
+          (
+            empresa_id,
+            nombre,
+            telefono,
+            email,
+            direccion
+          )
+
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
+        `,
+        [
+          empresaId,
+          nombre,
+          telefono,
+          email,
+          direccion,
+        ],
+      );
+
+    return obtenerClientePorId(
+      result.insertId,
+      empresaId,
+    );
+  };
+
+/*
+ * =====================================
+ * ACTUALIZAR CLIENTE
+ * =====================================
+ */
+
+const actualizarCliente =
+  async (
+    id,
+    empresaId,
+    data,
+  ) => {
+    const {
+      nombre,
+      telefono = null,
+      email = null,
+      direccion = null,
+    } = data;
+
+    const [result] =
+      await db.query(
+        `
+          UPDATE clientes
+
+          SET
+            nombre = ?,
+            telefono = ?,
+            email = ?,
+            direccion = ?
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
+        `,
+        [
+          nombre,
+          telefono,
+          email,
+          direccion,
+          id,
+          empresaId,
+        ],
+      );
+
+    if (
+      result.affectedRows ===
+      0
+    ) {
+      return null;
+    }
+
+    return obtenerClientePorId(
+      id,
+      empresaId,
+    );
+  };
+
+/*
+ * =====================================
+ * CLIENTE TIENE VENTAS
+ * =====================================
+ */
+
+const clienteTieneVentas =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const [rows] =
+      await db.query(
+        `
+          SELECT
+            COUNT(*) AS cantidad
+
+          FROM ventas
+
+          WHERE
+            cliente_id = ?
+            AND empresa_id = ?
+        `,
+        [
+          id,
+          empresaId,
+        ],
+      );
+
+    return (
+      Number(
+        rows[0]?.cantidad ??
+          0,
+      ) > 0
+    );
+  };
+
+/*
+ * =====================================
+ * ELIMINAR CLIENTE
+ * =====================================
+ */
+
+const eliminarCliente =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const cliente =
+      await obtenerClientePorId(
+        id,
+        empresaId,
+      );
+
+    /*
+     * Si existe en otra empresa,
+     * para este usuario simplemente
+     * no existe.
+     */
+
+    if (!cliente) {
+      return {
+        eliminado: false,
+
+        motivo:
+          "NO_ENCONTRADO",
+      };
+    }
+
+    const tieneVentas =
+      await clienteTieneVentas(
+        id,
+        empresaId,
+      );
+
+    if (tieneVentas) {
+      return {
+        eliminado: false,
+
+        motivo:
+          "TIENE_VENTAS",
+      };
+    }
+
+    const [result] =
+      await db.query(
+        `
+          DELETE FROM clientes
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
+        `,
+        [
+          id,
+          empresaId,
+        ],
+      );
+
+    return {
+      eliminado:
+        result.affectedRows >
+        0,
+
+      motivo:
+        result.affectedRows >
+        0
+          ? null
+          : "NO_ENCONTRADO",
+    };
+  };
 
 module.exports = {
   obtenerClientes,
+
   obtenerClientePorId,
+
   crearCliente,
+
   actualizarCliente,
+
   eliminarCliente,
 };

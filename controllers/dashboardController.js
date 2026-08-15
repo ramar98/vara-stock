@@ -2,6 +2,38 @@ const dashboardService = require(
   "../services/dashboardService",
 );
 
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
+function responderEmpresaNoValida(res) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
 function responderError(
   res,
   error,
@@ -44,9 +76,19 @@ exports.obtenerResumen =
     req,
     res,
   ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const usuarioId =
         req.usuario?.id ??
+        req.usuarioId ??
         null;
 
       const rol =
@@ -59,6 +101,7 @@ exports.obtenerResumen =
 
       const resumen =
         await dashboardService.obtenerResumen({
+          empresaId,
           usuarioId,
           rol,
         });
@@ -88,6 +131,15 @@ exports.obtenerVentasPorDia =
     req,
     res,
   ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     const dias =
       Number(
         req.query.dias ??
@@ -113,11 +165,9 @@ exports.obtenerVentasPorDia =
     }
 
     try {
-      /*
-       * Usuario autenticado.
-       */
       const usuarioId =
         req.usuario?.id ??
+        req.usuarioId ??
         null;
 
       const rol =
@@ -132,6 +182,7 @@ exports.obtenerVentasPorDia =
         await dashboardService.obtenerVentasPorDia(
           dias,
           {
+            empresaId,
             usuarioId,
             rol,
           },
@@ -162,9 +213,20 @@ exports.obtenerStockBajo =
     req,
     res,
   ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const productos =
-        await dashboardService.obtenerProductosStockBajo();
+        await dashboardService.obtenerProductosStockBajo(
+          empresaId,
+        );
 
       return res
         .status(200)

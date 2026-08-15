@@ -10,6 +10,7 @@ const db = require(
 
 const obtenerResumen =
   async ({
+    empresaId,
     usuarioId = null,
     rol = "",
   } = {}) => {
@@ -24,77 +25,102 @@ const obtenerResumen =
 
     /*
      * =================================
-     * FILTROS POR USUARIO
+     * VENTAS DE HOY
      * =================================
      */
 
-    const condicionMovimientos =
-      esVendedor
-        ? "WHERE ms.usuario_id = ?"
-        : "";
+    const condicionesVentasHoy = [
+      "v.empresa_id = ?",
+      "DATE(v.fecha) = CURRENT_DATE",
+    ];
 
-    const parametrosMovimientos =
-      esVendedor
-        ? [usuarioId]
-        : [];
+    const parametrosVentasHoy = [
+      empresaId,
+    ];
 
-    const condicionVentas =
-      esVendedor
-        ? "WHERE v.usuario_id = ?"
-        : "";
+    if (esVendedor) {
+      condicionesVentasHoy.push(
+        "v.usuario_id = ?",
+      );
 
-    const parametrosVentas =
-      esVendedor
-        ? [usuarioId]
-        : [];
+      parametrosVentasHoy.push(
+        usuarioId,
+      );
+    }
 
     /*
-     * Para ventas con condiciones
-     * adicionales de fecha usamos AND.
+     * =================================
+     * VENTAS DEL MES
+     * =================================
      */
 
-    const condicionVentasHoy =
-      esVendedor
-        ? `
-            WHERE
-              DATE(v.fecha) = CURRENT_DATE
-              AND v.usuario_id = ?
-          `
-        : `
-            WHERE
-              DATE(v.fecha) = CURRENT_DATE
-          `;
+    const condicionesVentasMes = [
+      "v.empresa_id = ?",
+      "YEAR(v.fecha) = YEAR(CURRENT_DATE)",
+      "MONTH(v.fecha) = MONTH(CURRENT_DATE)",
+    ];
 
-    const parametrosVentasHoy =
-      esVendedor
-        ? [usuarioId]
-        : [];
+    const parametrosVentasMes = [
+      empresaId,
+    ];
 
-    const condicionVentasMes =
-      esVendedor
-        ? `
-            WHERE
-              YEAR(v.fecha) =
-                YEAR(CURRENT_DATE)
+    if (esVendedor) {
+      condicionesVentasMes.push(
+        "v.usuario_id = ?",
+      );
 
-              AND MONTH(v.fecha) =
-                MONTH(CURRENT_DATE)
+      parametrosVentasMes.push(
+        usuarioId,
+      );
+    }
 
-              AND v.usuario_id = ?
-          `
-        : `
-            WHERE
-              YEAR(v.fecha) =
-                YEAR(CURRENT_DATE)
+    /*
+     * =================================
+     * MOVIMIENTOS
+     * =================================
+     */
 
-              AND MONTH(v.fecha) =
-                MONTH(CURRENT_DATE)
-          `;
+    const condicionesMovimientos = [
+      "p.empresa_id = ?",
+    ];
 
-    const parametrosVentasMes =
-      esVendedor
-        ? [usuarioId]
-        : [];
+    const parametrosMovimientos = [
+      empresaId,
+    ];
+
+    if (esVendedor) {
+      condicionesMovimientos.push(
+        "ms.usuario_id = ?",
+      );
+
+      parametrosMovimientos.push(
+        usuarioId,
+      );
+    }
+
+    /*
+     * =================================
+     * VENTAS RECIENTES
+     * =================================
+     */
+
+    const condicionesVentasRecientes = [
+      "v.empresa_id = ?",
+    ];
+
+    const parametrosVentasRecientes = [
+      empresaId,
+    ];
+
+    if (esVendedor) {
+      condicionesVentasRecientes.push(
+        "v.usuario_id = ?",
+      );
+
+      parametrosVentasRecientes.push(
+        usuarioId,
+      );
+    }
 
     const [
       productosResult,
@@ -118,28 +144,50 @@ const obtenerResumen =
             SELECT
               COUNT(*) AS cantidad
 
-            FROM productos
+            FROM productos p
 
-            WHERE activo = TRUE
+            WHERE
+              p.empresa_id = ?
+              AND p.activo = TRUE
           `,
+          [
+            empresaId,
+          ],
         ),
 
         /*
          * =============================
          * UNIDADES EN STOCK
          * =============================
+         *
+         * producto_variantes no tiene
+         * empresa_id, por eso unimos con
+         * productos.
          */
 
         db.query(
           `
             SELECT
               COALESCE(
-                SUM(stock_actual),
+                SUM(
+                  pv.stock_actual
+                ),
                 0
               ) AS cantidad
 
-            FROM producto_variantes
+            FROM producto_variantes pv
+
+            INNER JOIN productos p
+              ON p.id =
+                pv.producto_id
+
+            WHERE
+              p.empresa_id = ?
+              AND p.activo = TRUE
           `,
+          [
+            empresaId,
+          ],
         ),
 
         /*
@@ -158,7 +206,10 @@ const obtenerResumen =
 
             FROM ventas v
 
-            ${condicionVentasHoy}
+            WHERE
+              ${condicionesVentasHoy.join(
+                " AND ",
+              )}
           `,
           parametrosVentasHoy,
         ),
@@ -179,7 +230,10 @@ const obtenerResumen =
 
             FROM ventas v
 
-            ${condicionVentasMes}
+            WHERE
+              ${condicionesVentasMes.join(
+                " AND ",
+              )}
           `,
           parametrosVentasMes,
         ),
@@ -189,26 +243,36 @@ const obtenerResumen =
          * COMPRAS DEL MES
          * =============================
          *
-         * Esto sigue siendo global.
+         * Se muestran las compras de la
+         * empresa completa.
+         *
+         * No filtramos por vendedor porque
+         * conceptualmente son compras del
+         * negocio, no ventas personales.
          */
 
         db.query(
           `
             SELECT
               COALESCE(
-                SUM(total),
+                SUM(i.total),
                 0
               ) AS total
 
-            FROM ingresos
+            FROM ingresos i
 
             WHERE
-              YEAR(fecha) =
-                YEAR(CURRENT_DATE)
+              i.empresa_id = ?
 
-              AND MONTH(fecha) =
-                MONTH(CURRENT_DATE)
+              AND YEAR(i.fecha) =
+                  YEAR(CURRENT_DATE)
+
+              AND MONTH(i.fecha) =
+                  MONTH(CURRENT_DATE)
           `,
+          [
+            empresaId,
+          ],
         ),
 
         /*
@@ -229,11 +293,15 @@ const obtenerResumen =
                 pv.producto_id
 
             WHERE
-              p.activo = TRUE
+              p.empresa_id = ?
+              AND p.activo = TRUE
 
               AND pv.stock_actual <=
-                pv.stock_minimo
+                  pv.stock_minimo
           `,
+          [
+            empresaId,
+          ],
         ),
 
         /*
@@ -281,16 +349,25 @@ const obtenerResumen =
             LEFT JOIN colores c
               ON c.id =
                 pv.color_id
+             AND c.empresa_id =
+                p.empresa_id
 
             LEFT JOIN talles t
               ON t.id =
                 pv.talle_id
+             AND t.empresa_id =
+                p.empresa_id
 
             LEFT JOIN usuarios u
               ON u.id =
                 ms.usuario_id
+             AND u.empresa_id =
+                p.empresa_id
 
-            ${condicionMovimientos}
+            WHERE
+              ${condicionesMovimientos.join(
+                " AND ",
+              )}
 
             ORDER BY
               ms.created_at DESC,
@@ -340,16 +417,23 @@ const obtenerResumen =
             LEFT JOIN clientes c
               ON c.id =
                 v.cliente_id
+             AND c.empresa_id =
+                v.empresa_id
 
             LEFT JOIN usuarios u
               ON u.id =
                 v.usuario_id
+             AND u.empresa_id =
+                v.empresa_id
 
             LEFT JOIN ventas_detalle vd
               ON vd.venta_id =
                 v.id
 
-            ${condicionVentas}
+            WHERE
+              ${condicionesVentasRecientes.join(
+                " AND ",
+              )}
 
             GROUP BY
               v.id,
@@ -367,7 +451,7 @@ const obtenerResumen =
 
             LIMIT 10
           `,
-          parametrosVentas,
+          parametrosVentasRecientes,
         ),
       ]);
 
@@ -464,6 +548,7 @@ const obtenerVentasPorDia =
   async (
     dias = 7,
     {
+      empresaId,
       usuarioId = null,
       rol = "",
     } = {},
@@ -487,60 +572,61 @@ const obtenerVentasPorDia =
       rolNormalizado ===
       "VENDEDOR";
 
-    /*
-     * Admin:
-     *
-     * WHERE fecha >= ...
-     *
-     * Vendedor:
-     *
-     * WHERE fecha >= ...
-     * AND usuario_id = ?
-     */
+    const condiciones = [
+      `
+        v.empresa_id = ?
+      `,
+      `
+        v.fecha >=
+        DATE_SUB(
+          CURRENT_DATE,
+          INTERVAL ? DAY
+        )
+      `,
+    ];
 
-    const filtroUsuario =
-      esVendedor
-        ? "AND usuario_id = ?"
-        : "";
+    const parametros = [
+      empresaId,
+      cantidadDias - 1,
+    ];
 
-    const parametros =
-      esVendedor
-        ? [
-            cantidadDias - 1,
-            usuarioId,
-          ]
-        : [
-            cantidadDias - 1,
-          ];
+    if (esVendedor) {
+      condiciones.push(
+        "v.usuario_id = ?",
+      );
+
+      parametros.push(
+        usuarioId,
+      );
+    }
 
     const [rows] =
       await db.query(
         `
           SELECT
-            DATE(fecha) AS fecha,
+            DATE(
+              v.fecha
+            ) AS fecha,
 
             COUNT(*) AS cantidad_ventas,
 
             COALESCE(
-              SUM(total),
+              SUM(v.total),
               0
             ) AS total
 
-          FROM ventas
+          FROM ventas v
 
-          WHERE fecha >=
-            DATE_SUB(
-              CURRENT_DATE,
-              INTERVAL ? DAY
-            )
-
-          ${filtroUsuario}
+          WHERE
+            ${condiciones.join(
+              " AND ",
+            )}
 
           GROUP BY
-            DATE(fecha)
+            DATE(v.fecha)
 
           ORDER BY
-            DATE(fecha) ASC
+            DATE(v.fecha) ASC
         `,
         parametros,
       );
@@ -572,7 +658,9 @@ const obtenerVentasPorDia =
  */
 
 const obtenerProductosStockBajo =
-  async () => {
+  async (
+    empresaId,
+  ) => {
     const [rows] =
       await db.query(
         `
@@ -598,16 +686,21 @@ const obtenerProductosStockBajo =
           LEFT JOIN colores c
             ON c.id =
               pv.color_id
+           AND c.empresa_id =
+              p.empresa_id
 
           LEFT JOIN talles t
             ON t.id =
               pv.talle_id
+           AND t.empresa_id =
+              p.empresa_id
 
           WHERE
-            p.activo = TRUE
+            p.empresa_id = ?
+            AND p.activo = TRUE
 
             AND pv.stock_actual <=
-              pv.stock_minimo
+                pv.stock_minimo
 
           ORDER BY
             pv.stock_actual ASC,
@@ -615,6 +708,9 @@ const obtenerProductosStockBajo =
             c.nombre ASC,
             t.nombre ASC
         `,
+        [
+          empresaId,
+        ],
       );
 
     return rows;

@@ -16,11 +16,30 @@ function validarTipo(tipo) {
 function convertirId(valor) {
   const id = Number(valor);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
     return null;
   }
 
   return id;
+}
+
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
 }
 
 function normalizarNombre(valor) {
@@ -69,6 +88,18 @@ function responderTipoInvalido(res) {
   });
 }
 
+function responderEmpresaNoValida(res) {
+  return res.status(403).json({
+    success: false,
+    message:
+      "No se pudo determinar la empresa del usuario autenticado.",
+    error: {
+      code:
+        "EMPRESA_NO_ASIGNADA",
+    },
+  });
+}
+
 function responderError(res, error) {
   if (
     error.code ===
@@ -81,7 +112,7 @@ function responderError(res, error) {
     return res.status(409).json({
       success: false,
       message:
-        "Ya existe un elemento con ese nombre en el catálogo.",
+        "Ya existe un elemento con ese nombre en el catálogo de la empresa.",
       error: {
         code: error.code,
       },
@@ -103,7 +134,8 @@ function responderError(res, error) {
   }
 
   if (
-    error.code === "ELEMENTO_DUPLICADO"
+    error.code ===
+    "ELEMENTO_DUPLICADO"
   ) {
     return res.status(409).json({
       success: false,
@@ -127,9 +159,9 @@ function responderError(res, error) {
       process.env.NODE_ENV ===
         "development"
         ? {
-          code: error.code,
-          detail: error.message,
-        }
+            code: error.code,
+            detail: error.message,
+          }
         : undefined,
   });
 }
@@ -144,10 +176,18 @@ exports.obtenerElementos = async (
     return responderTipoInvalido(res);
   }
 
+  const empresaId =
+    obtenerEmpresaId(req);
+
+  if (!empresaId) {
+    return responderEmpresaNoValida(res);
+  }
+
   try {
     const elementos =
       await catalogosService.obtenerElementos(
         tipo,
+        empresaId,
         {
           busqueda:
             req.query.busqueda || "",
@@ -182,11 +222,19 @@ exports.obtenerElemento = async (
     });
   }
 
+  const empresaId =
+    obtenerEmpresaId(req);
+
+  if (!empresaId) {
+    return responderEmpresaNoValida(res);
+  }
+
   try {
     const elemento =
       await catalogosService.obtenerElementoPorId(
         tipo,
         id,
+        empresaId,
       );
 
     if (!elemento) {
@@ -216,6 +264,13 @@ exports.crearElemento = async (
     return responderTipoInvalido(res);
   }
 
+  const empresaId =
+    obtenerEmpresaId(req);
+
+  if (!empresaId) {
+    return responderEmpresaNoValida(res);
+  }
+
   const validacion = validarElemento(
     req.body,
   );
@@ -233,6 +288,7 @@ exports.crearElemento = async (
     const elemento =
       await catalogosService.crearElemento(
         tipo,
+        empresaId,
         validacion.datos,
       );
 
@@ -266,6 +322,13 @@ exports.actualizarElemento = async (
     });
   }
 
+  const empresaId =
+    obtenerEmpresaId(req);
+
+  if (!empresaId) {
+    return responderEmpresaNoValida(res);
+  }
+
   const validacion = validarElemento(
     req.body,
   );
@@ -284,6 +347,7 @@ exports.actualizarElemento = async (
       await catalogosService.actualizarElemento(
         tipo,
         id,
+        empresaId,
         validacion.datos,
       );
 
@@ -325,11 +389,19 @@ exports.eliminarElemento = async (
     });
   }
 
+  const empresaId =
+    obtenerEmpresaId(req);
+
+  if (!empresaId) {
+    return responderEmpresaNoValida(res);
+  }
+
   try {
     const resultado =
       await catalogosService.eliminarElemento(
         tipo,
         id,
+        empresaId,
       );
 
     if (

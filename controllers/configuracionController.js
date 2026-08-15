@@ -17,7 +17,8 @@ function normalizarTexto(valor) {
 }
 
 function normalizarTextoOpcional(valor) {
-  const texto = normalizarTexto(valor);
+  const texto =
+    normalizarTexto(valor);
 
   return texto || null;
 }
@@ -32,12 +33,31 @@ function validarEmail(email) {
   );
 }
 
-function validarConfiguracion(body = {}) {
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
+function validarConfiguracion(
+  body = {},
+) {
   const errores = [];
 
-  const nombreNegocio = normalizarTexto(
-    body.nombre_negocio,
-  );
+  const nombreNegocio =
+    normalizarTexto(
+      body.nombre_negocio,
+    );
 
   const eslogan =
     normalizarTextoOpcional(
@@ -149,7 +169,9 @@ function validarConfiguracion(body = {}) {
   }
 
   if (
-    Number.isNaN(porcentajeIva) ||
+    Number.isNaN(
+      porcentajeIva,
+    ) ||
     porcentajeIva < 0 ||
     porcentajeIva > 100
   ) {
@@ -171,7 +193,8 @@ function validarConfiguracion(body = {}) {
 
   if (
     encabezadoComprobante &&
-    encabezadoComprobante.length > 250
+    encabezadoComprobante.length >
+      250
   ) {
     errores.push(
       "El encabezado del comprobante no puede superar los 250 caracteres.",
@@ -218,6 +241,24 @@ function validarConfiguracion(body = {}) {
   };
 }
 
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
 function responderError(
   res,
   error,
@@ -227,85 +268,140 @@ function responderError(
     error,
   );
 
-  return res.status(500).json({
-    success: false,
+  return res
+    .status(500)
+    .json({
+      success: false,
 
-    message:
-      "Ocurrió un error interno procesando la configuración.",
+      message:
+        "Ocurrió un error interno procesando la configuración.",
 
-    error:
-      process.env.NODE_ENV ===
-      "development"
-        ? {
-            code: error.code,
-            detail: error.message,
-          }
-        : undefined,
-  });
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
-exports.obtenerConfiguracion = async (
-  req,
-  res,
-) => {
-  try {
-    const configuracion =
-      await configuracionService.obtenerConfiguracion();
+/*
+ * =====================================
+ * OBTENER CONFIGURACIÓN
+ * =====================================
+ */
 
-    return res.status(200).json({
-      success: true,
-      data: configuracion,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-    );
-  }
-};
+exports.obtenerConfiguracion =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const configuracion =
+        await configuracionService.obtenerConfiguracion(
+          empresaId,
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data:
+            configuracion,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ACTUALIZAR CONFIGURACIÓN
+ * =====================================
+ */
 
 exports.actualizarConfiguracion =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     const validacion =
       validarConfiguracion(
         req.body,
       );
 
-    if (!validacion.valido) {
-      return res.status(400).json({
-        success: false,
+    if (
+      !validacion.valido
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-        message:
-          "Los datos de configuración no son válidos.",
+          message:
+            "Los datos de configuración no son válidos.",
 
-        errors:
-          validacion.errores,
-      });
+          errors:
+            validacion.errores,
+        });
     }
 
     try {
       const configuracion =
         await configuracionService.actualizarConfiguracion(
+          empresaId,
           validacion.datos,
         );
 
       if (!configuracion) {
-        return res.status(404).json({
-          success: false,
+        return res
+          .status(404)
+          .json({
+            success: false,
 
-          message:
-            "No se encontró la configuración del negocio.",
-        });
+            message:
+              "No se encontró la configuración del negocio.",
+          });
       }
 
-      return res.status(200).json({
-        success: true,
+      return res
+        .status(200)
+        .json({
+          success: true,
 
-        message:
-          "Configuración actualizada correctamente.",
+          message:
+            "Configuración actualizada correctamente.",
 
-        data: configuracion,
-      });
+          data:
+            configuracion,
+        });
     } catch (error) {
       return responderError(
         res,

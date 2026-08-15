@@ -1,16 +1,23 @@
-const bcrypt = require("bcryptjs");
+const bcrypt = require(
+  "bcryptjs",
+);
 
-const db = require("../config/db");
+const db = require(
+  "../config/db",
+);
 
 const CAMPOS_USUARIO = `
   SELECT
     u.id,
+    u.empresa_id,
     u.nombre,
     u.apellido,
     u.usuario,
     u.email,
     u.rol_id,
+
     r.nombre AS rol,
+
     u.activo,
     u.created_at,
     u.updated_at
@@ -21,7 +28,9 @@ const CAMPOS_USUARIO = `
     ON r.id = u.rol_id
 `;
 
-function normalizarUsuario(fila) {
+function normalizarUsuario(
+  fila,
+) {
   if (!fila) {
     return null;
   }
@@ -29,115 +38,176 @@ function normalizarUsuario(fila) {
   return {
     ...fila,
 
-    id: Number(fila.id),
+    id:
+      Number(
+        fila.id,
+      ),
 
-    rol_id: Number(
-      fila.rol_id,
-    ),
+    empresa_id:
+      Number(
+        fila.empresa_id,
+      ),
 
-    activo: Boolean(
-      fila.activo,
-    ),
+    rol_id:
+      Number(
+        fila.rol_id,
+      ),
+
+    activo:
+      Boolean(
+        fila.activo,
+      ),
   };
 }
 
-const obtenerUsuarios = async ({
-  busqueda = "",
-} = {}) => {
-  const texto =
-    String(
-      busqueda ?? "",
-    ).trim();
+/*
+ * =====================================
+ * OBTENER USUARIOS
+ * =====================================
+ */
 
-  const parametros = [];
+const obtenerUsuarios =
+  async ({
+    empresaId,
+    busqueda = "",
+  } = {}) => {
+    const texto =
+      String(
+        busqueda ?? "",
+      ).trim();
 
-  let where = "";
+    const parametros = [
+      empresaId,
+    ];
 
-  if (texto) {
-    const filtro =
-      `%${texto}%`;
+    const condiciones = [
+      "u.empresa_id = ?",
+    ];
 
-    where = `
-      WHERE
-        u.nombre LIKE ?
-        OR u.apellido LIKE ?
-        OR u.usuario LIKE ?
-        OR u.email LIKE ?
-        OR r.nombre LIKE ?
+    if (texto) {
+      const filtro =
+        `%${texto}%`;
+
+      condiciones.push(`
+        (
+          u.nombre LIKE ?
+          OR u.apellido LIKE ?
+          OR u.usuario LIKE ?
+          OR u.email LIKE ?
+          OR r.nombre LIKE ?
+        )
+      `);
+
+      parametros.push(
+        filtro,
+        filtro,
+        filtro,
+        filtro,
+        filtro,
+      );
+    }
+
+    const where = `
+      WHERE ${condiciones.join(
+        " AND ",
+      )}
     `;
 
-    parametros.push(
-      filtro,
-      filtro,
-      filtro,
-      filtro,
-      filtro,
-    );
-  }
-
-  const [rows] =
-    await db.query(
-      `
-        ${CAMPOS_USUARIO}
-
-        ${where}
-
-        ORDER BY
-          u.activo DESC,
-          u.nombre ASC,
-          u.apellido ASC
-      `,
-      parametros,
-    );
-
-  return rows.map(
-    normalizarUsuario,
-  );
-};
-
-const obtenerUsuarioPorId =
-  async (id) => {
     const [rows] =
       await db.query(
         `
           ${CAMPOS_USUARIO}
 
-          WHERE u.id = ?
+          ${where}
 
-          LIMIT 1
+          ORDER BY
+            u.activo DESC,
+            u.nombre ASC,
+            u.apellido ASC
         `,
-        [id],
+        parametros,
       );
 
-    return normalizarUsuario(
-      rows[0] ?? null,
+    return rows.map(
+      normalizarUsuario,
     );
   };
 
-const obtenerRoles = async () => {
-  const [rows] =
-    await db.query(
-      `
-        SELECT
+/*
+ * =====================================
+ * OBTENER USUARIO POR ID
+ * =====================================
+ */
+
+const obtenerUsuarioPorId =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const [rows] =
+      await db.query(
+        `
+          ${CAMPOS_USUARIO}
+
+          WHERE
+            u.id = ?
+            AND u.empresa_id = ?
+
+          LIMIT 1
+        `,
+        [
           id,
-          nombre
+          empresaId,
+        ],
+      );
 
-        FROM roles
-
-        ORDER BY nombre ASC
-      `,
+    return normalizarUsuario(
+      rows[0] ??
+      null,
     );
+  };
 
-  return rows.map(
-    (rol) => ({
-      ...rol,
-      id: Number(rol.id),
-    }),
-  );
-};
+/*
+ * =====================================
+ * ROLES
+ * =====================================
+ *
+ * Los roles siguen siendo globales.
+ * =====================================
+ */
+
+const obtenerRoles =
+  async () => {
+    const [rows] =
+      await db.query(
+        `
+          SELECT
+            id,
+            nombre
+
+          FROM roles
+
+          ORDER BY
+            nombre ASC
+        `,
+      );
+
+    return rows.map(
+      (rol) => ({
+        ...rol,
+
+        id:
+          Number(
+            rol.id,
+          ),
+      }),
+    );
+  };
 
 const obtenerRolPorId =
-  async (id) => {
+  async (
+    id,
+  ) => {
     const [rows] =
       await db.query(
         `
@@ -151,28 +221,52 @@ const obtenerRolPorId =
 
           LIMIT 1
         `,
-        [id],
+        [
+          id,
+        ],
       );
 
-    return rows[0] ?? null;
+    return (
+      rows[0] ??
+      null
+    );
   };
+
+/*
+ * =====================================
+ * DUPLICADOS
+ * =====================================
+ *
+ * usuario/email pueden repetirse
+ * entre empresas distintas.
+ * =====================================
+ */
 
 const verificarDuplicado =
   async ({
+    empresaId,
     usuario,
     email,
     excluirId = null,
   }) => {
     const condiciones = [
+      "empresa_id = ?",
+
       `
         (
-          LOWER(usuario) = LOWER(?)
-          OR LOWER(email) = LOWER(?)
+          LOWER(usuario) =
+            LOWER(?)
+
+          OR
+
+          LOWER(email) =
+            LOWER(?)
         )
       `,
     ];
 
     const parametros = [
+      empresaId,
       usuario,
       email,
     ];
@@ -192,6 +286,7 @@ const verificarDuplicado =
         `
           SELECT
             id,
+            empresa_id,
             usuario,
             email
 
@@ -207,127 +302,56 @@ const verificarDuplicado =
         parametros,
       );
 
-    return rows[0] ?? null;
+    return (
+      rows[0] ??
+      null
+    );
   };
 
-const crearUsuario = async ({
-  nombre,
-  apellido,
-  usuario,
-  email,
-  password,
-  rol_id,
-  activo = true,
-}) => {
-  const duplicado =
-    await verificarDuplicado({
-      usuario,
-      email,
-    });
+/*
+ * =====================================
+ * CREAR USUARIO
+ * =====================================
+ */
 
-  if (duplicado) {
-    const mismoUsuario =
-      String(
-        duplicado.usuario,
-      ).toLowerCase() ===
-      String(
-        usuario,
-      ).toLowerCase();
-
-    const error =
-      new Error(
-        mismoUsuario
-          ? "Ya existe un usuario con ese nombre de usuario."
-          : "Ya existe un usuario con ese correo electrónico.",
+const crearUsuario =
+  async ({
+    empresa_id,
+    nombre,
+    apellido,
+    usuario,
+    email,
+    password,
+    rol_id,
+    activo = true,
+  }) => {
+    const empresaId =
+      Number(
+        empresa_id,
       );
 
-    error.code =
-      "USUARIO_DUPLICADO";
+    if (
+      !Number.isInteger(
+        empresaId,
+      ) ||
+      empresaId <= 0
+    ) {
+      const error =
+        new Error(
+          "No se pudo determinar la empresa.",
+        );
 
-    throw error;
-  }
+      error.code =
+        "EMPRESA_NO_ASIGNADA";
 
-  const rol =
-    await obtenerRolPorId(
-      rol_id,
-    );
-
-  if (!rol) {
-    const error =
-      new Error(
-        "El rol seleccionado no existe.",
-      );
-
-    error.code =
-      "ROL_NO_ENCONTRADO";
-
-    throw error;
-  }
-
-  const passwordHash =
-    await bcrypt.hash(
-      password,
-      12,
-    );
-
-  const [resultado] =
-    await db.query(
-      `
-        INSERT INTO usuarios
-        (
-          nombre,
-          apellido,
-          usuario,
-          email,
-          password,
-          rol_id,
-          activo
-        )
-
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        nombre,
-        apellido,
-        usuario,
-        email,
-        passwordHash,
-        rol_id,
-        Boolean(activo),
-      ],
-    );
-
-  return obtenerUsuarioPorId(
-    resultado.insertId,
-  );
-};
-
-const actualizarUsuario =
-  async (
-    id,
-    {
-      nombre,
-      apellido,
-      usuario,
-      email,
-      rol_id,
-      activo,
-    },
-  ) => {
-    const usuarioActual =
-      await obtenerUsuarioPorId(
-        id,
-      );
-
-    if (!usuarioActual) {
-      return null;
+      throw error;
     }
 
     const duplicado =
       await verificarDuplicado({
+        empresaId,
         usuario,
         email,
-        excluirId: id,
       });
 
     if (duplicado) {
@@ -342,8 +366,8 @@ const actualizarUsuario =
       const error =
         new Error(
           mismoUsuario
-            ? "Ya existe un usuario con ese nombre de usuario."
-            : "Ya existe un usuario con ese correo electrónico.",
+            ? "Ya existe un usuario con ese nombre de usuario dentro de la empresa."
+            : "Ya existe un usuario con ese correo electrónico dentro de la empresa.",
         );
 
       error.code =
@@ -369,77 +393,244 @@ const actualizarUsuario =
       throw error;
     }
 
-    await db.query(
-      `
-        UPDATE usuarios
+    const passwordHash =
+      await bcrypt.hash(
+        password,
+        12,
+      );
 
-        SET
-          nombre = ?,
-          apellido = ?,
-          usuario = ?,
-          email = ?,
-          rol_id = ?,
-          activo = ?
+    const [resultado] =
+      await db.query(
+        `
+          INSERT INTO usuarios
+          (
+            empresa_id,
+            nombre,
+            apellido,
+            usuario,
+            email,
+            password,
+            rol_id,
+            activo
+          )
 
-        WHERE id = ?
-      `,
-      [
-        nombre,
-        apellido,
+          VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
+        `,
+        [
+          empresaId,
+          nombre,
+          apellido,
+          usuario,
+          email,
+          passwordHash,
+          rol_id,
+          Boolean(activo),
+        ],
+      );
+
+    return obtenerUsuarioPorId(
+      resultado.insertId,
+      empresaId,
+    );
+  };
+
+/*
+ * =====================================
+ * ACTUALIZAR USUARIO
+ * =====================================
+ */
+
+const actualizarUsuario =
+  async (
+    id,
+    empresaId,
+    {
+      nombre,
+      apellido,
+      usuario,
+      email,
+      rol_id,
+      activo,
+    },
+  ) => {
+    const usuarioActual =
+      await obtenerUsuarioPorId(
+        id,
+        empresaId,
+      );
+
+    if (!usuarioActual) {
+      return null;
+    }
+
+    const duplicado =
+      await verificarDuplicado({
+        empresaId,
         usuario,
         email,
+        excluirId: id,
+      });
+
+    if (duplicado) {
+      const mismoUsuario =
+        String(
+          duplicado.usuario,
+        ).toLowerCase() ===
+        String(
+          usuario,
+        ).toLowerCase();
+
+      const error =
+        new Error(
+          mismoUsuario
+            ? "Ya existe un usuario con ese nombre de usuario dentro de la empresa."
+            : "Ya existe un usuario con ese correo electrónico dentro de la empresa.",
+        );
+
+      error.code =
+        "USUARIO_DUPLICADO";
+
+      throw error;
+    }
+
+    const rol =
+      await obtenerRolPorId(
         rol_id,
-        Boolean(activo),
-        id,
-      ],
-    );
+      );
+
+    if (!rol) {
+      const error =
+        new Error(
+          "El rol seleccionado no existe.",
+        );
+
+      error.code =
+        "ROL_NO_ENCONTRADO";
+
+      throw error;
+    }
+
+    const [resultado] =
+      await db.query(
+        `
+          UPDATE usuarios
+
+          SET
+            nombre = ?,
+            apellido = ?,
+            usuario = ?,
+            email = ?,
+            rol_id = ?,
+            activo = ?
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
+        `,
+        [
+          nombre,
+          apellido,
+          usuario,
+          email,
+          rol_id,
+          Boolean(activo),
+          id,
+          empresaId,
+        ],
+      );
+
+    if (
+      resultado.affectedRows ===
+      0
+    ) {
+      return null;
+    }
 
     return obtenerUsuarioPorId(
       id,
+      empresaId,
     );
   };
+
+/*
+ * =====================================
+ * CAMBIAR ESTADO
+ * =====================================
+ */
 
 const cambiarEstadoUsuario =
   async (
     id,
+    empresaId,
     activo,
   ) => {
     const usuario =
       await obtenerUsuarioPorId(
         id,
+        empresaId,
       );
 
     if (!usuario) {
       return null;
     }
 
-    await db.query(
-      `
-        UPDATE usuarios
+    const [resultado] =
+      await db.query(
+        `
+          UPDATE usuarios
 
-        SET activo = ?
+          SET
+            activo = ?
 
-        WHERE id = ?
-      `,
-      [
-        Boolean(activo),
-        id,
-      ],
-    );
+          WHERE
+            id = ?
+            AND empresa_id = ?
+        `,
+        [
+          Boolean(activo),
+          id,
+          empresaId,
+        ],
+      );
+
+    if (
+      resultado.affectedRows ===
+      0
+    ) {
+      return null;
+    }
 
     return obtenerUsuarioPorId(
       id,
+      empresaId,
     );
   };
+
+/*
+ * =====================================
+ * CAMBIAR PASSWORD
+ * =====================================
+ */
 
 const cambiarPassword =
   async (
     id,
+    empresaId,
     nuevaPassword,
   ) => {
     const usuario =
       await obtenerUsuarioPorId(
         id,
+        empresaId,
       );
 
     if (!usuario) {
@@ -452,21 +643,29 @@ const cambiarPassword =
         12,
       );
 
-    await db.query(
-      `
-        UPDATE usuarios
+    const [resultado] =
+      await db.query(
+        `
+          UPDATE usuarios
 
-        SET password = ?
+          SET
+            password = ?
 
-        WHERE id = ?
-      `,
-      [
-        passwordHash,
-        id,
-      ],
+          WHERE
+            id = ?
+            AND empresa_id = ?
+        `,
+        [
+          passwordHash,
+          id,
+          empresaId,
+        ],
+      );
+
+    return (
+      resultado.affectedRows >
+      0
     );
-
-    return true;
   };
 
 module.exports = {

@@ -5,23 +5,47 @@ const proveedoresService = require(
 function convertirId(valor) {
   const id = Number(valor);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
     return null;
   }
 
   return id;
 }
 
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
 function normalizarTexto(valor) {
-  if (typeof valor !== "string") {
+  if (
+    typeof valor !== "string"
+  ) {
     return "";
   }
 
   return valor.trim();
 }
 
-function normalizarTextoOpcional(valor) {
-  const texto = normalizarTexto(valor);
+function normalizarTextoOpcional(
+  valor,
+) {
+  const texto =
+    normalizarTexto(valor);
 
   return texto || null;
 }
@@ -36,12 +60,15 @@ function validarEmail(email) {
   );
 }
 
-function validarProveedor(body = {}) {
+function validarProveedor(
+  body = {},
+) {
   const errores = [];
 
-  const nombre = normalizarTexto(
-    body.nombre,
-  );
+  const nombre =
+    normalizarTexto(
+      body.nombre,
+    );
 
   const telefono =
     normalizarTextoOpcional(
@@ -69,7 +96,9 @@ function validarProveedor(body = {}) {
     );
   }
 
-  if (nombre.length > 150) {
+  if (
+    nombre.length > 150
+  ) {
     errores.push(
       "El nombre no puede superar los 150 caracteres.",
     );
@@ -84,7 +113,9 @@ function validarProveedor(body = {}) {
     );
   }
 
-  if (!validarEmail(email)) {
+  if (
+    !validarEmail(email)
+  ) {
     errores.push(
       "El correo electrónico no es válido.",
     );
@@ -118,8 +149,11 @@ function validarProveedor(body = {}) {
   }
 
   return {
-    valido: errores.length === 0,
+    valido:
+      errores.length === 0,
+
     errores,
+
     datos: {
       nombre,
       telefono,
@@ -130,16 +164,45 @@ function validarProveedor(body = {}) {
   };
 }
 
-function responderError(res, error) {
-  if (error.code === "ER_DUP_ENTRY") {
-    return res.status(409).json({
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
       success: false,
+
       message:
-        "Ya existe un proveedor con esos datos.",
+        "No se pudo determinar la empresa del usuario autenticado.",
+
       error: {
-        code: error.code,
+        code:
+          "EMPRESA_NO_ASIGNADA",
       },
     });
+}
+
+function responderError(
+  res,
+  error,
+) {
+  if (
+    error.code ===
+    "ER_DUP_ENTRY"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          "Ya existe un proveedor con esos datos dentro de la empresa.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
   }
 
   console.error(
@@ -147,213 +210,389 @@ function responderError(res, error) {
     error,
   );
 
-  return res.status(500).json({
-    success: false,
-    message:
-      "Ocurrió un error interno procesando el proveedor.",
-    error:
-      process.env.NODE_ENV ===
-      "development"
-        ? {
-            code: error.code,
-            detail: error.message,
-          }
-        : undefined,
-  });
+  return res
+    .status(500)
+    .json({
+      success: false,
+
+      message:
+        "Ocurrió un error interno procesando el proveedor.",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
-exports.obtenerProveedores = async (
-  req,
-  res,
-) => {
-  try {
-    const proveedores =
-      await proveedoresService.obtenerProveedores({
-        busqueda:
-          req.query.busqueda || "",
-      });
+/*
+ * =====================================
+ * OBTENER PROVEEDORES
+ * =====================================
+ */
 
-    return res.status(200).json({
-      success: true,
-      data: proveedores,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+exports.obtenerProveedores =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
 
-exports.obtenerProveedor = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del proveedor no es válido.",
-    });
-  }
-
-  try {
-    const proveedor =
-      await proveedoresService.obtenerProveedorPorId(
-        id,
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
       );
-
-    if (!proveedor) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Proveedor no encontrado.",
-      });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: proveedor,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    try {
+      const proveedores =
+        await proveedoresService.obtenerProveedores({
+          empresaId,
 
-exports.crearProveedor = async (
-  req,
-  res,
-) => {
-  const validacion = validarProveedor(
-    req.body,
-  );
+          busqueda:
+            req.query.busqueda ||
+            "",
+        });
 
-  if (!validacion.valido) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "Los datos del proveedor no son válidos.",
-      errors: validacion.errores,
-    });
-  }
+      return res
+        .status(200)
+        .json({
+          success: true,
 
-  try {
-    const proveedor =
-      await proveedoresService.crearProveedor(
-        validacion.datos,
+          data:
+            proveedores,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * OBTENER PROVEEDOR
+ * =====================================
+ */
+
+exports.obtenerProveedor =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
       );
 
-    return res.status(201).json({
-      success: true,
-      message:
-        "Proveedor creado correctamente.",
-      data: proveedor,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-exports.actualizarProveedor = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del proveedor no es válido.",
-    });
-  }
-
-  const validacion = validarProveedor(
-    req.body,
-  );
-
-  if (!validacion.valido) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "Los datos del proveedor no son válidos.",
-      errors: validacion.errores,
-    });
-  }
-
-  try {
-    const proveedor =
-      await proveedoresService.actualizarProveedor(
-        id,
-        validacion.datos,
-      );
-
-    if (!proveedor) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Proveedor no encontrado.",
-      });
+          message:
+            "El ID del proveedor no es válido.",
+        });
     }
 
-    return res.status(200).json({
-      success: true,
-      message:
-        "Proveedor actualizado correctamente.",
-      data: proveedor,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    const empresaId =
+      obtenerEmpresaId(req);
 
-exports.eliminarProveedor = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
 
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del proveedor no es válido.",
-    });
-  }
+    try {
+      const proveedor =
+        await proveedoresService.obtenerProveedorPorId(
+          id,
+          empresaId,
+        );
 
-  try {
-    const resultado =
-      await proveedoresService.eliminarProveedor(
-        id,
+      if (!proveedor) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Proveedor no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data:
+            proveedor,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * CREAR PROVEEDOR
+ * =====================================
+ */
+
+exports.crearProveedor =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarProveedor(
+        req.body,
       );
 
     if (
-      resultado.motivo ===
-      "NO_ENCONTRADO"
+      !validacion.valido
     ) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Proveedor no encontrado.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del proveedor no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
     }
+
+    try {
+      const proveedor =
+        await proveedoresService.crearProveedor(
+          empresaId,
+          validacion.datos,
+        );
+
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Proveedor creado correctamente.",
+
+          data:
+            proveedor,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ACTUALIZAR PROVEEDOR
+ * =====================================
+ */
+
+exports.actualizarProveedor =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del proveedor no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarProveedor(
+        req.body,
+      );
 
     if (
-      resultado.motivo ===
-      "TIENE_RELACIONES"
+      !validacion.valido
     ) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "No se puede eliminar el proveedor porque tiene productos o ingresos asociados.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del proveedor no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
     }
 
-    return res.status(200).json({
-      success: true,
-      message:
-        "Proveedor eliminado correctamente.",
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    try {
+      const proveedor =
+        await proveedoresService.actualizarProveedor(
+          id,
+          empresaId,
+          validacion.datos,
+        );
+
+      if (!proveedor) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Proveedor no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Proveedor actualizado correctamente.",
+
+          data:
+            proveedor,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ELIMINAR PROVEEDOR
+ * =====================================
+ */
+
+exports.eliminarProveedor =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID del proveedor no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const resultado =
+        await proveedoresService.eliminarProveedor(
+          id,
+          empresaId,
+        );
+
+      if (
+        resultado.motivo ===
+        "NO_ENCONTRADO"
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Proveedor no encontrado.",
+          });
+      }
+
+      if (
+        resultado.motivo ===
+        "TIENE_RELACIONES"
+      ) {
+        return res
+          .status(409)
+          .json({
+            success: false,
+
+            message:
+              "No se puede eliminar el proveedor porque tiene productos o ingresos asociados.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Proveedor eliminado correctamente.",
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };

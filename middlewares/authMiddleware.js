@@ -2,6 +2,12 @@ const authService = require(
   "../services/authService",
 );
 
+/*
+ * =====================================
+ * OBTENER TOKEN
+ * =====================================
+ */
+
 function obtenerToken(req) {
   const authorization =
     req.headers.authorization;
@@ -18,9 +24,13 @@ function obtenerToken(req) {
   }
 
   const tokenAlternativo =
-    req.headers["x-access-token"];
+    req.headers[
+      "x-access-token"
+    ];
 
-  if (tokenAlternativo) {
+  if (
+    tokenAlternativo
+  ) {
     return String(
       tokenAlternativo,
     ).trim();
@@ -28,6 +38,12 @@ function obtenerToken(req) {
 
   return null;
 }
+
+/*
+ * =====================================
+ * VERIFICAR AUTENTICACIÓN
+ * =====================================
+ */
 
 async function verificarAutenticacion(
   req,
@@ -38,17 +54,19 @@ async function verificarAutenticacion(
     obtenerToken(req);
 
   if (!token) {
-    return res.status(401).json({
-      success: false,
+    return res
+      .status(401)
+      .json({
+        success: false,
 
-      message:
-        "Debés iniciar sesión para acceder a este recurso.",
+        message:
+          "Debés iniciar sesión para acceder a este recurso.",
 
-      error: {
-        code:
-          "TOKEN_NO_ENVIADO",
-      },
-    });
+        error: {
+          code:
+            "TOKEN_NO_ENVIADO",
+        },
+      });
   }
 
   try {
@@ -58,20 +76,41 @@ async function verificarAutenticacion(
       );
 
     /*
-     * Dejamos disponible la información
-     * del usuario autenticado para los
-     * controllers y middlewares siguientes.
+     * =================================
+     * USUARIO AUTENTICADO
+     * =================================
      */
-    req.usuario = usuario;
+
+    req.usuario =
+      usuario;
+
+    /*
+     * Compatibilidad con código
+     * que ya tenemos.
+     */
 
     req.usuarioId =
       usuario.id;
 
     req.rol =
-      usuario.rol || null;
+      usuario.rol ||
+      null;
 
     req.rolId =
-      usuario.rol_id || null;
+      usuario.rol_id ||
+      null;
+
+    /*
+     * =================================
+     * MULTIEMPRESA
+     * =================================
+     *
+     * Este será el valor que usarán
+     * todos los controllers/services.
+     */
+
+    req.empresaId =
+      usuario.empresa_id;
 
     return next();
   } catch (error) {
@@ -84,23 +123,50 @@ async function verificarAutenticacion(
 
       USUARIO_INACTIVO:
         "El usuario se encuentra inactivo.",
+
+      EMPRESA_INACTIVA:
+        "La empresa se encuentra inactiva.",
+
+      EMPRESA_NO_ASIGNADA:
+        "El usuario no tiene una empresa asignada.",
     };
 
-    return res.status(401).json({
-      success: false,
+    /*
+     * Empresa inactiva es una
+     * sesión válida pero sin acceso.
+     */
 
-      message:
-        mensajes[error.code] ||
-        "No se pudo validar la sesión.",
+    const status =
+      error.code ===
+        "EMPRESA_INACTIVA"
+        ? 403
+        : 401;
 
-      error: {
-        code:
-          error.code ||
-          "ERROR_AUTENTICACION",
-      },
-    });
+    return res
+      .status(status)
+      .json({
+        success: false,
+
+        message:
+          mensajes[
+            error.code
+          ] ||
+          "No se pudo validar la sesión.",
+
+        error: {
+          code:
+            error.code ||
+            "ERROR_AUTENTICACION",
+        },
+      });
   }
 }
+
+/*
+ * =====================================
+ * AUTORIZACIÓN POR ROL
+ * =====================================
+ */
 
 function autorizarRoles(
   ...rolesPermitidos
@@ -111,17 +177,20 @@ function autorizarRoles(
     next,
   ) => {
     if (!req.usuario) {
-      return res.status(401).json({
-        success: false,
+      return res
+        .status(401)
+        .json({
+          success:
+            false,
 
-        message:
-          "Debés iniciar sesión.",
+          message:
+            "Debés iniciar sesión.",
 
-        error: {
-          code:
-            "USUARIO_NO_AUTENTICADO",
-        },
-      });
+          error: {
+            code:
+              "USUARIO_NO_AUTENTICADO",
+          },
+        });
     }
 
     const rolesNormalizados =
@@ -135,24 +204,28 @@ function autorizarRoles(
     const rolUsuario =
       String(
         req.rol ||
-          req.usuario.rol ||
+          req.usuario
+            .rol ||
           "",
       )
         .trim()
         .toUpperCase();
 
     if (!rolUsuario) {
-      return res.status(403).json({
-        success: false,
+      return res
+        .status(403)
+        .json({
+          success:
+            false,
 
-        message:
-          "El usuario no tiene un rol asignado.",
+          message:
+            "El usuario no tiene un rol asignado.",
 
-        error: {
-          code:
-            "ROL_NO_ASIGNADO",
-        },
-      });
+          error: {
+            code:
+              "ROL_NO_ASIGNADO",
+          },
+        });
     }
 
     if (
@@ -160,20 +233,24 @@ function autorizarRoles(
         rolUsuario,
       )
     ) {
-      return res.status(403).json({
-        success: false,
+      return res
+        .status(403)
+        .json({
+          success:
+            false,
 
-        message:
-          "No tenés permisos para realizar esta operación.",
+          message:
+            "No tenés permisos para realizar esta operación.",
 
-        error: {
-          code:
-            "PERMISO_DENEGADO",
+          error: {
+            code:
+              "PERMISO_DENEGADO",
 
-          rol:
-            req.usuario.rol,
-        },
-      });
+            rol:
+              req.usuario
+                .rol,
+          },
+        });
     }
 
     return next();

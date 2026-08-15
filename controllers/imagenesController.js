@@ -5,7 +5,10 @@ const imagenesService = require(
 function convertirId(valor) {
   const id = Number(valor);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
     return null;
   }
 
@@ -21,23 +24,87 @@ function convertirBooleano(valor) {
   );
 }
 
-function responderError(res, error) {
-  if (error.code === "PRODUCTO_NO_ENCONTRADO") {
-    return res.status(404).json({
-      success: false,
-      message: error.message,
-    });
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
   }
 
-  if (error.code === "ER_NO_REFERENCED_ROW_2") {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El producto seleccionado no existe.",
-      error: {
-        code: error.code,
-      },
-    });
+  return empresaId;
+}
+
+function responderEmpresaNoValida(res) {
+  return res.status(403).json({
+    success: false,
+
+    message:
+      "No se pudo determinar la empresa del usuario autenticado.",
+
+    error: {
+      code: "EMPRESA_NO_ASIGNADA",
+    },
+  });
+}
+
+function responderError(
+  res,
+  error,
+) {
+  if (
+    error.code ===
+    "PRODUCTO_NO_ENCONTRADO"
+  ) {
+    return res
+      .status(404)
+      .json({
+        success: false,
+        message: error.message,
+
+        error: {
+          code: error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+    "IMAGEN_NO_ENCONTRADA"
+  ) {
+    return res
+      .status(404)
+      .json({
+        success: false,
+        message: error.message,
+
+        error: {
+          code: error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+    "ER_NO_REFERENCED_ROW_2"
+  ) {
+    return res
+      .status(400)
+      .json({
+        success: false,
+
+        message:
+          "El producto seleccionado no existe.",
+
+        error: {
+          code: error.code,
+        },
+      });
   }
 
   console.error(
@@ -45,160 +112,314 @@ function responderError(res, error) {
     error,
   );
 
-  return res.status(500).json({
-    success: false,
-    message:
-      "Ocurrió un error interno procesando la imagen.",
-    error:
-      process.env.NODE_ENV === "development"
-        ? {
-            code: error.code,
-            detail: error.message,
-          }
-        : undefined,
-  });
+  return res
+    .status(500)
+    .json({
+      success: false,
+
+      message:
+        "Ocurrió un error interno procesando la imagen.",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
-exports.obtenerImagenes = async (req, res) => {
-  const productoId = convertirId(
-    req.params.producto_id,
-  );
+/*
+ * =====================================
+ * LISTAR IMÁGENES
+ * =====================================
+ */
 
-  if (!productoId) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID del producto no es válido.",
-    });
-  }
-
-  try {
-    const imagenes =
-      await imagenesService.obtenerImagenes(
-        productoId,
+exports.obtenerImagenes =
+  async (
+    req,
+    res,
+  ) => {
+    const productoId =
+      convertirId(
+        req.params.producto_id,
       );
 
-    return res.status(200).json({
-      success: true,
-      data: imagenes,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    if (!productoId) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-exports.subirImagen = async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({
-      success: false,
-      message: "No se envió ninguna imagen.",
-    });
-  }
+          message:
+            "El ID del producto no es válido.",
+        });
+    }
 
-  const productoId = convertirId(
-    req.body.producto_id,
-  );
+    const empresaId =
+      obtenerEmpresaId(req);
 
-  if (!productoId) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El producto seleccionado no es válido.",
-    });
-  }
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
 
-  try {
-    const imagen =
-      await imagenesService.guardarImagen({
-        producto_id: productoId,
-        ruta: req.file.path,
-        principal: convertirBooleano(
-          req.body.principal,
-        ),
-      });
+    try {
+      const imagenes =
+        await imagenesService.obtenerImagenes(
+          productoId,
+          empresaId,
+        );
 
-    return res.status(201).json({
-      success: true,
-      message:
-        "Imagen subida correctamente.",
-      data: imagen,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data: imagenes,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
 
-exports.marcarComoPrincipal = async (
-  req,
-  res,
-) => {
-  const id = convertirId(req.params.id);
+/*
+ * =====================================
+ * SUBIR IMAGEN
+ * =====================================
+ */
 
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID de la imagen no es válido.",
-    });
-  }
+exports.subirImagen =
+  async (
+    req,
+    res,
+  ) => {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-  try {
-    const imagen =
-      await imagenesService.marcarComoPrincipal(
-        id,
+          message:
+            "No se envió ninguna imagen.",
+        });
+    }
+
+    const productoId =
+      convertirId(
+        req.body.producto_id,
       );
 
-    if (!imagen) {
-      return res.status(404).json({
-        success: false,
-        message: "Imagen no encontrada.",
-      });
+    if (!productoId) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El producto seleccionado no es válido.",
+        });
     }
 
-    return res.status(200).json({
-      success: true,
-      message:
-        "Imagen principal actualizada correctamente.",
-      data: imagen,
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    const empresaId =
+      obtenerEmpresaId(req);
 
-exports.eliminarImagen = async (req, res) => {
-  const id = convertirId(req.params.id);
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "El ID de la imagen no es válido.",
-    });
-  }
-
-  try {
-    const resultado =
-      await imagenesService.eliminarImagen(id);
-
-    if (
-      resultado.motivo === "NO_ENCONTRADA"
-    ) {
-      return res.status(404).json({
-        success: false,
-        message: "Imagen no encontrada.",
-      });
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
     }
 
-    return res.status(200).json({
-      success: true,
-      message:
-        "Imagen eliminada correctamente.",
-      data: {
-        producto_id: resultado.producto_id,
-      },
-    });
-  } catch (error) {
-    return responderError(res, error);
-  }
-};
+    try {
+      const imagen =
+        await imagenesService.guardarImagen(
+          {
+            producto_id:
+              productoId,
+
+            ruta:
+              req.file.path,
+
+            principal:
+              convertirBooleano(
+                req.body.principal,
+              ),
+          },
+          empresaId,
+        );
+
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Imagen subida correctamente.",
+
+          data: imagen,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * MARCAR PRINCIPAL
+ * =====================================
+ */
+
+exports.marcarComoPrincipal =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID de la imagen no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const imagen =
+        await imagenesService.marcarComoPrincipal(
+          id,
+          empresaId,
+        );
+
+      if (!imagen) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Imagen no encontrada.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Imagen principal actualizada correctamente.",
+
+          data: imagen,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ELIMINAR IMAGEN
+ * =====================================
+ */
+
+exports.eliminarImagen =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID de la imagen no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const resultado =
+        await imagenesService.eliminarImagen(
+          id,
+          empresaId,
+        );
+
+      if (
+        resultado.motivo ===
+        "NO_ENCONTRADA"
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Imagen no encontrada.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Imagen eliminada correctamente.",
+
+          data: {
+            producto_id:
+              resultado.producto_id,
+          },
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };

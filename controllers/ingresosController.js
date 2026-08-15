@@ -5,11 +5,30 @@ const ingresosService = require(
 function convertirId(valor) {
   const id = Number(valor);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
     return null;
   }
 
   return id;
+}
+
+function obtenerEmpresaId(req) {
+  const empresaId = Number(
+    req.empresaId ??
+      req.usuario?.empresa_id,
+  );
+
+  if (
+    !Number.isInteger(empresaId) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
 }
 
 function normalizarTextoOpcional(valor) {
@@ -79,13 +98,15 @@ function validarProductos(productos) {
           item?.variante_id,
         );
 
-      const cantidad = Number(
-        item?.cantidad,
-      );
+      const cantidad =
+        Number(
+          item?.cantidad,
+        );
 
-      const precioCosto = Number(
-        item?.precio_costo,
-      );
+      const precioCosto =
+        Number(
+          item?.precio_costo,
+        );
 
       if (!varianteId) {
         errores.push(
@@ -94,7 +115,9 @@ function validarProductos(productos) {
       }
 
       if (
-        !Number.isInteger(cantidad) ||
+        !Number.isInteger(
+          cantidad,
+        ) ||
         cantidad <= 0
       ) {
         errores.push(
@@ -105,7 +128,8 @@ function validarProductos(productos) {
       if (
         item?.precio_costo ===
           undefined ||
-        item?.precio_costo === "" ||
+        item?.precio_costo ===
+          "" ||
         Number.isNaN(
           precioCosto,
         ) ||
@@ -134,9 +158,13 @@ function validarProductos(productos) {
       }
 
       productosNormalizados.push({
-        variante_id: varianteId,
+        variante_id:
+          varianteId,
+
         cantidad,
-        precio_costo: precioCosto,
+
+        precio_costo:
+          precioCosto,
       });
     },
   );
@@ -144,7 +172,9 @@ function validarProductos(productos) {
   return {
     valido:
       errores.length === 0,
+
     errores,
+
     productos:
       productosNormalizados,
   };
@@ -164,7 +194,11 @@ function validarIngreso(body = {}) {
     );
   }
 
-  if (!validarFecha(body.fecha)) {
+  if (
+    !validarFecha(
+      body.fecha,
+    )
+  ) {
     errores.push(
       "La fecha del ingreso no es válida.",
     );
@@ -191,7 +225,8 @@ function validarIngreso(body = {}) {
 
   if (
     numeroComprobante &&
-    numeroComprobante.length > 50
+    numeroComprobante.length >
+      50
   ) {
     errores.push(
       "El número de comprobante no puede superar los 50 caracteres.",
@@ -200,7 +235,8 @@ function validarIngreso(body = {}) {
 
   if (
     observaciones &&
-    observaciones.length > 1000
+    observaciones.length >
+      1000
   ) {
     errores.push(
       "Las observaciones no pueden superar los 1000 caracteres.",
@@ -231,6 +267,22 @@ function validarIngreso(body = {}) {
   };
 }
 
+function responderEmpresaNoValida(res) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
+}
+
 function responderError(
   res,
   error,
@@ -238,19 +290,23 @@ function responderError(
   const erroresControlados = {
     PROVEEDOR_NO_ENCONTRADO: {
       status: 404,
+
       message:
-        "El proveedor seleccionado no existe.",
+        "El proveedor seleccionado no existe o no pertenece a la empresa.",
     },
 
     USUARIO_NO_ENCONTRADO: {
       status: 404,
+
       message:
-        "El usuario de la sesión no existe o está inactivo.",
+        "El usuario de la sesión no existe, está inactivo o no pertenece a la empresa.",
     },
 
     VARIANTE_NO_ENCONTRADA: {
       status: 404,
-      message: error.message,
+
+      message:
+        error.message,
     },
   };
 
@@ -266,11 +322,13 @@ function responderError(
       )
       .json({
         success: false,
+
         message:
           errorControlado.message,
 
         error: {
-          code: error.code,
+          code:
+            error.code,
         },
       });
   }
@@ -279,16 +337,19 @@ function responderError(
     error.code ===
     "ER_NO_REFERENCED_ROW_2"
   ) {
-    return res.status(400).json({
-      success: false,
+    return res
+      .status(400)
+      .json({
+        success: false,
 
-      message:
-        "Alguno de los datos relacionados no existe.",
+        message:
+          "Alguno de los datos relacionados no existe.",
 
-      error: {
-        code: error.code,
-      },
-    });
+        error: {
+          code:
+            error.code,
+        },
+      });
   }
 
   console.error(
@@ -296,217 +357,318 @@ function responderError(
     error,
   );
 
-  return res.status(500).json({
-    success: false,
+  return res
+    .status(500)
+    .json({
+      success: false,
 
-    message:
-      "Ocurrió un error interno procesando el ingreso.",
+      message:
+        "Ocurrió un error interno procesando el ingreso.",
 
-    error:
-      process.env.NODE_ENV ===
-      "development"
-        ? {
-            code: error.code,
-            detail:
-              error.message,
-          }
-        : undefined,
-  });
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? {
+              code:
+                error.code,
+
+              detail:
+                error.message,
+            }
+          : undefined,
+    });
 }
 
-exports.obtenerIngresos = async (
-  req,
-  res,
-) => {
-  const {
-    fecha_desde: fechaDesde,
-    fecha_hasta: fechaHasta,
-    proveedor_id:
-      proveedorIdParametro,
-  } = req.query;
+/*
+ * =====================================
+ * OBTENER INGRESOS
+ * =====================================
+ */
 
-  const proveedorId =
-    proveedorIdParametro
-      ? convertirId(
-          proveedorIdParametro,
-        )
-      : null;
+exports.obtenerIngresos =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
 
-  if (
-    proveedorIdParametro &&
-    !proveedorId
-  ) {
-    return res.status(400).json({
-      success: false,
-
-      message:
-        "El proveedor utilizado como filtro no es válido.",
-    });
-  }
-
-  if (
-    fechaDesde &&
-    !validarFecha(fechaDesde)
-  ) {
-    return res.status(400).json({
-      success: false,
-
-      message:
-        "La fecha inicial no es válida.",
-    });
-  }
-
-  if (
-    fechaHasta &&
-    !validarFecha(fechaHasta)
-  ) {
-    return res.status(400).json({
-      success: false,
-
-      message:
-        "La fecha final no es válida.",
-    });
-  }
-
-  if (
-    fechaDesde &&
-    fechaHasta &&
-    fechaDesde >
-      fechaHasta
-  ) {
-    return res.status(400).json({
-      success: false,
-
-      message:
-        "La fecha inicial no puede ser posterior a la fecha final.",
-    });
-  }
-
-  try {
-    const ingresos =
-      await ingresosService.obtenerIngresos(
-        {
-          fechaDesde:
-            fechaDesde || null,
-
-          fechaHasta:
-            fechaHasta || null,
-
-          proveedorId,
-        },
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
       );
-
-    return res.status(200).json({
-      success: true,
-      data: ingresos,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-    );
-  }
-};
-
-exports.obtenerIngreso = async (
-  req,
-  res,
-) => {
-  const id = convertirId(
-    req.params.id,
-  );
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-
-      message:
-        "El ID del ingreso no es válido.",
-    });
-  }
-
-  try {
-    const ingreso =
-      await ingresosService.obtenerIngresoPorId(
-        id,
-      );
-
-    if (!ingreso) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Ingreso no encontrado.",
-      });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: ingreso,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-    );
-  }
-};
+    const {
+      fecha_desde:
+        fechaDesde,
 
-exports.crearIngreso = async (
-  req,
-  res,
-) => {
-  const validacion =
-    validarIngreso(req.body);
+      fecha_hasta:
+        fechaHasta,
 
-  if (!validacion.valido) {
-    return res.status(400).json({
-      success: false,
+      proveedor_id:
+        proveedorIdParametro,
+    } = req.query;
 
-      message:
-        "Los datos del ingreso no son válidos.",
+    const proveedorId =
+      proveedorIdParametro
+        ? convertirId(
+            proveedorIdParametro,
+          )
+        : null;
 
-      errors:
-        validacion.errores,
-    });
-  }
+    if (
+      proveedorIdParametro &&
+      !proveedorId
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-  if (!req.usuarioId) {
-    return res.status(401).json({
-      success: false,
+          message:
+            "El proveedor utilizado como filtro no es válido.",
+        });
+    }
 
-      message:
-        "No se pudo identificar al usuario de la sesión.",
+    if (
+      fechaDesde &&
+      !validarFecha(
+        fechaDesde,
+      )
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-      error: {
-        code:
-          "USUARIO_NO_AUTENTICADO",
-      },
-    });
-  }
+          message:
+            "La fecha inicial no es válida.",
+        });
+    }
 
-  try {
-    const ingreso =
-      await ingresosService.crearIngreso(
-        {
-          ...validacion.datos,
+    if (
+      fechaHasta &&
+      !validarFecha(
+        fechaHasta,
+      )
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-          usuario_id:
-            req.usuarioId,
-        },
+          message:
+            "La fecha final no es válida.",
+        });
+    }
+
+    if (
+      fechaDesde &&
+      fechaHasta &&
+      fechaDesde >
+        fechaHasta
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "La fecha inicial no puede ser posterior a la fecha final.",
+        });
+    }
+
+    try {
+      const ingresos =
+        await ingresosService.obtenerIngresos(
+          {
+            empresaId,
+
+            fechaDesde:
+              fechaDesde ||
+              null,
+
+            fechaHasta:
+              fechaHasta ||
+              null,
+
+            proveedorId,
+          },
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data:
+            ingresos,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * OBTENER INGRESO
+ * =====================================
+ */
+
+exports.obtenerIngreso =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
       );
 
-    return res.status(201).json({
-      success: true,
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-      message:
-        "Ingreso registrado correctamente.",
+          message:
+            "El ID del ingreso no es válido.",
+        });
+    }
 
-      data: ingreso,
-    });
-  } catch (error) {
-    return responderError(
-      res,
-      error,
-    );
-  }
-};
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const ingreso =
+        await ingresosService.obtenerIngresoPorId(
+          id,
+          empresaId,
+        );
+
+      if (!ingreso) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Ingreso no encontrado.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data:
+            ingreso,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * CREAR INGRESO
+ * =====================================
+ */
+
+exports.crearIngreso =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarIngreso(
+        req.body,
+      );
+
+    if (
+      !validacion.valido
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Los datos del ingreso no son válidos.",
+
+          errors:
+            validacion.errores,
+        });
+    }
+
+    if (!req.usuarioId) {
+      return res
+        .status(401)
+        .json({
+          success: false,
+
+          message:
+            "No se pudo identificar al usuario de la sesión.",
+
+          error: {
+            code:
+              "USUARIO_NO_AUTENTICADO",
+          },
+        });
+    }
+
+    try {
+      const ingreso =
+        await ingresosService.crearIngreso(
+          {
+            ...validacion.datos,
+
+            empresa_id:
+              empresaId,
+
+            usuario_id:
+              req.usuarioId,
+          },
+        );
+
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Ingreso registrado correctamente.",
+
+          data:
+            ingreso,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };

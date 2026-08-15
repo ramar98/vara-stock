@@ -1,509 +1,820 @@
-const db = require("../config/db");
+const db = require(
+  "../config/db",
+);
 
-const obtenerIngresoPorId = async (id) => {
-  const [ingresos] = await db.query(
-    `
-      SELECT
-        i.id,
-        i.proveedor_id,
-        i.numero_comprobante,
-        i.fecha,
-        i.total,
-        i.observaciones,
-        i.usuario_id,
-        i.created_at,
+/*
+ * =====================================
+ * OBTENER INGRESO POR ID
+ * =====================================
+ */
 
-        p.nombre AS proveedor,
+const obtenerIngresoPorId =
+  async (
+    id,
+    empresaId,
+  ) => {
+    const [ingresos] =
+      await db.query(
+        `
+          SELECT
+            i.id,
+            i.empresa_id,
+            i.proveedor_id,
+            i.numero_comprobante,
+            i.fecha,
+            i.total,
+            i.observaciones,
+            i.usuario_id,
+            i.created_at,
 
-        u.nombre AS usuario_nombre,
-        u.apellido AS usuario_apellido
+            p.nombre AS proveedor,
 
-      FROM ingresos i
+            u.nombre AS usuario_nombre,
+            u.apellido AS usuario_apellido
 
-      INNER JOIN proveedores p
-        ON p.id = i.proveedor_id
+          FROM ingresos i
 
-      LEFT JOIN usuarios u
-        ON u.id = i.usuario_id
+          INNER JOIN proveedores p
+            ON p.id = i.proveedor_id
+           AND p.empresa_id =
+               i.empresa_id
 
-      WHERE i.id = ?
+          LEFT JOIN usuarios u
+            ON u.id = i.usuario_id
+           AND u.empresa_id =
+               i.empresa_id
 
-      LIMIT 1
-    `,
-    [id],
-  );
+          WHERE
+            i.id = ?
+            AND i.empresa_id = ?
 
-  if (ingresos.length === 0) {
-    return null;
-  }
+          LIMIT 1
+        `,
+        [
+          id,
+          empresaId,
+        ],
+      );
 
-  const [detalles] = await db.query(
-    `
-      SELECT
-        idet.id,
-        idet.ingreso_id,
-        idet.variante_id,
-        idet.cantidad,
-        idet.precio_costo,
-        idet.subtotal,
+    if (
+      ingresos.length ===
+      0
+    ) {
+      return null;
+    }
 
-        pv.codigo_barras,
-        pv.producto_id,
+    /*
+     * Detalles del ingreso.
+     *
+     * ingresos_detalle no tiene empresa_id,
+     * por eso verificamos empresa mediante
+     * ingresos y productos.
+     */
 
-        p.codigo AS producto_codigo,
-        p.nombre AS producto_nombre,
+    const [detalles] =
+      await db.query(
+        `
+          SELECT
+            idet.id,
+            idet.ingreso_id,
+            idet.variante_id,
+            idet.cantidad,
+            idet.precio_costo,
+            idet.subtotal,
 
-        c.nombre AS color,
-        t.nombre AS talle
+            pv.codigo_barras,
+            pv.producto_id,
 
-      FROM ingresos_detalle idet
+            p.codigo AS producto_codigo,
+            p.nombre AS producto_nombre,
 
-      INNER JOIN producto_variantes pv
-        ON pv.id = idet.variante_id
+            c.nombre AS color,
+            t.nombre AS talle
 
-      INNER JOIN productos p
-        ON p.id = pv.producto_id
+          FROM ingresos_detalle idet
 
-      LEFT JOIN colores c
-        ON c.id = pv.color_id
+          INNER JOIN ingresos i
+            ON i.id =
+              idet.ingreso_id
 
-      LEFT JOIN talles t
-        ON t.id = pv.talle_id
+          INNER JOIN producto_variantes pv
+            ON pv.id =
+              idet.variante_id
 
-      WHERE idet.ingreso_id = ?
+          INNER JOIN productos p
+            ON p.id =
+              pv.producto_id
 
-      ORDER BY
-        p.nombre ASC,
-        c.nombre ASC,
-        t.nombre ASC
-    `,
-    [id],
-  );
+          LEFT JOIN colores c
+            ON c.id =
+              pv.color_id
+           AND c.empresa_id =
+              p.empresa_id
 
-  const ingreso = ingresos[0];
+          LEFT JOIN talles t
+            ON t.id =
+              pv.talle_id
+           AND t.empresa_id =
+              p.empresa_id
 
-  return {
-    ...ingreso,
+          WHERE
+            idet.ingreso_id = ?
+            AND i.empresa_id = ?
+            AND p.empresa_id = ?
 
-    total: Number(
-      ingreso.total ?? 0,
-    ),
+          ORDER BY
+            p.nombre ASC,
+            c.nombre ASC,
+            t.nombre ASC
+        `,
+        [
+          id,
+          empresaId,
+          empresaId,
+        ],
+      );
 
-    productos: detalles.map(
-      (detalle) => ({
-        ...detalle,
+    const ingreso =
+      ingresos[0];
 
-        cantidad: Number(
-          detalle.cantidad ?? 0,
+    return {
+      ...ingreso,
+
+      total:
+        Number(
+          ingreso.total ??
+          0,
         ),
 
-        precio_costo: Number(
-          detalle.precio_costo ?? 0,
-        ),
+      productos:
+        detalles.map(
+          (detalle) => ({
+            ...detalle,
 
-        subtotal: Number(
-          detalle.subtotal ?? 0,
+            cantidad:
+              Number(
+                detalle.cantidad ??
+                0,
+              ),
+
+            precio_costo:
+              Number(
+                detalle.precio_costo ??
+                0,
+              ),
+
+            subtotal:
+              Number(
+                detalle.subtotal ??
+                0,
+              ),
+          }),
         ),
-      }),
-    ),
+    };
   };
-};
 
-const obtenerIngresos = async ({
-  fechaDesde = null,
-  fechaHasta = null,
-  proveedorId = null,
-} = {}) => {
-  const condiciones = [];
-  const parametros = [];
+/*
+ * =====================================
+ * OBTENER INGRESOS
+ * =====================================
+ */
 
-  if (fechaDesde) {
-    condiciones.push(
-      "i.fecha >= ?",
-    );
+const obtenerIngresos =
+  async ({
+    empresaId,
+    fechaDesde = null,
+    fechaHasta = null,
+    proveedorId = null,
+  } = {}) => {
+    /*
+     * La empresa SIEMPRE es condición
+     * obligatoria.
+     */
 
-    parametros.push(
-      fechaDesde,
-    );
-  }
+    const condiciones = [
+      "i.empresa_id = ?",
+    ];
 
-  if (fechaHasta) {
-    condiciones.push(
-      "i.fecha <= ?",
-    );
+    const parametros = [
+      empresaId,
+    ];
 
-    parametros.push(
-      fechaHasta,
-    );
-  }
-
-  if (proveedorId) {
-    condiciones.push(
-      "i.proveedor_id = ?",
-    );
-
-    parametros.push(
-      proveedorId,
-    );
-  }
-
-  const where =
-    condiciones.length > 0
-      ? `WHERE ${condiciones.join(" AND ")}`
-      : "";
-
-  const [rows] = await db.query(
-    `
-      SELECT
-        i.id,
-        i.proveedor_id,
-        i.numero_comprobante,
-        i.fecha,
-        i.total,
-        i.observaciones,
-        i.usuario_id,
-        i.created_at,
-
-        p.nombre AS proveedor,
-
-        u.nombre AS usuario_nombre,
-        u.apellido AS usuario_apellido,
-
-        COUNT(idet.id) AS cantidad_items,
-
-        COALESCE(
-          SUM(idet.cantidad),
-          0
-        ) AS cantidad_unidades
-
-      FROM ingresos i
-
-      INNER JOIN proveedores p
-        ON p.id = i.proveedor_id
-
-      LEFT JOIN usuarios u
-        ON u.id = i.usuario_id
-
-      LEFT JOIN ingresos_detalle idet
-        ON idet.ingreso_id = i.id
-
-      ${where}
-
-      GROUP BY
-        i.id,
-        i.proveedor_id,
-        i.numero_comprobante,
-        i.fecha,
-        i.total,
-        i.observaciones,
-        i.usuario_id,
-        i.created_at,
-        p.nombre,
-        u.nombre,
-        u.apellido
-
-      ORDER BY
-        i.fecha DESC,
-        i.id DESC
-    `,
-    parametros,
-  );
-
-  return rows.map((fila) => ({
-    ...fila,
-
-    total: Number(
-      fila.total ?? 0,
-    ),
-
-    cantidad_items: Number(
-      fila.cantidad_items ?? 0,
-    ),
-
-    cantidad_unidades: Number(
-      fila.cantidad_unidades ?? 0,
-    ),
-  }));
-};
-
-const crearIngreso = async (data) => {
-  const {
-    proveedor_id,
-    numero_comprobante = null,
-    fecha,
-    observaciones = null,
-    usuario_id,
-    productos,
-  } = data;
-
-  const connection =
-    await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    if (!usuario_id) {
-      const error = new Error(
-        "No se pudo identificar al usuario de la sesión.",
+    if (fechaDesde) {
+      condiciones.push(
+        "i.fecha >= ?",
       );
 
-      error.code =
-        "USUARIO_NO_ENCONTRADO";
-
-      throw error;
+      parametros.push(
+        fechaDesde,
+      );
     }
 
-    const [usuarios] =
-      await connection.query(
+    if (fechaHasta) {
+      condiciones.push(
+        "i.fecha <= ?",
+      );
+
+      parametros.push(
+        fechaHasta,
+      );
+    }
+
+    if (proveedorId) {
+      condiciones.push(
+        "i.proveedor_id = ?",
+      );
+
+      parametros.push(
+        proveedorId,
+      );
+    }
+
+    const where = `
+      WHERE ${condiciones.join(
+      " AND ",
+    )}
+    `;
+
+    const [rows] =
+      await db.query(
         `
           SELECT
-            id
+            i.id,
+            i.empresa_id,
+            i.proveedor_id,
+            i.numero_comprobante,
+            i.fecha,
+            i.total,
+            i.observaciones,
+            i.usuario_id,
+            i.created_at,
 
-          FROM usuarios
+            p.nombre AS proveedor,
 
-          WHERE id = ?
-            AND activo = TRUE
+            u.nombre AS usuario_nombre,
+            u.apellido AS usuario_apellido,
 
-          LIMIT 1
+            COUNT(
+              idet.id
+            ) AS cantidad_items,
+
+            COALESCE(
+              SUM(
+                idet.cantidad
+              ),
+              0
+            ) AS cantidad_unidades
+
+          FROM ingresos i
+
+          INNER JOIN proveedores p
+            ON p.id =
+              i.proveedor_id
+           AND p.empresa_id =
+              i.empresa_id
+
+          LEFT JOIN usuarios u
+            ON u.id =
+              i.usuario_id
+           AND u.empresa_id =
+              i.empresa_id
+
+          LEFT JOIN ingresos_detalle idet
+            ON idet.ingreso_id =
+              i.id
+
+          ${where}
+
+          GROUP BY
+            i.id,
+            i.empresa_id,
+            i.proveedor_id,
+            i.numero_comprobante,
+            i.fecha,
+            i.total,
+            i.observaciones,
+            i.usuario_id,
+            i.created_at,
+            p.nombre,
+            u.nombre,
+            u.apellido
+
+          ORDER BY
+            i.fecha DESC,
+            i.id DESC
         `,
-        [usuario_id],
+        parametros,
       );
 
-    if (usuarios.length === 0) {
-      const error = new Error(
-        "El usuario de la sesión no existe o está inactivo.",
+    return rows.map(
+      (fila) => ({
+        ...fila,
+
+        total:
+          Number(
+            fila.total ??
+            0,
+          ),
+
+        cantidad_items:
+          Number(
+            fila.cantidad_items ??
+            0,
+          ),
+
+        cantidad_unidades:
+          Number(
+            fila.cantidad_unidades ??
+            0,
+          ),
+      }),
+    );
+  };
+
+/*
+ * =====================================
+ * CREAR INGRESO
+ * =====================================
+ */
+
+const crearIngreso =
+  async (
+    data,
+  ) => {
+    const {
+      empresa_id,
+      proveedor_id,
+      numero_comprobante = null,
+      fecha,
+      observaciones = null,
+      usuario_id,
+      productos,
+    } = data;
+
+    const empresaId =
+      Number(
+        empresa_id,
       );
 
-      error.code =
-        "USUARIO_NO_ENCONTRADO";
+    const connection =
+      await db.getConnection();
 
-      throw error;
-    }
+    try {
+      await connection.beginTransaction();
 
-    const [proveedores] =
-      await connection.query(
-        `
-          SELECT
-            id
+      /*
+       * =================================
+       * VALIDAR EMPRESA
+       * =================================
+       */
 
-          FROM proveedores
-
-          WHERE id = ?
-
-          LIMIT 1
-        `,
-        [proveedor_id],
-      );
-
-    if (proveedores.length === 0) {
-      const error = new Error(
-        "El proveedor seleccionado no existe.",
-      );
-
-      error.code =
-        "PROVEEDOR_NO_ENCONTRADO";
-
-      throw error;
-    }
-
-    let totalIngreso = 0;
-
-    const productosProcesados =
-      [];
-
-    for (const item of productos) {
-      const varianteId = Number(
-        item.variante_id,
-      );
-
-      const cantidad = Number(
-        item.cantidad,
-      );
-
-      const precioCosto = Number(
-        item.precio_costo,
-      );
-
-      const [variantes] =
-        await connection.query(
-          `
-            SELECT
-              pv.id,
-              pv.stock_actual,
-              p.nombre AS producto_nombre
-
-            FROM producto_variantes pv
-
-            INNER JOIN productos p
-              ON p.id = pv.producto_id
-
-            WHERE pv.id = ?
-
-            FOR UPDATE
-          `,
-          [varianteId],
-        );
-
-      if (variantes.length === 0) {
-        const error = new Error(
-          `La variante ${varianteId} no existe.`,
-        );
+      if (
+        !Number.isInteger(
+          empresaId,
+        ) ||
+        empresaId <= 0
+      ) {
+        const error =
+          new Error(
+            "No se pudo identificar la empresa.",
+          );
 
         error.code =
-          "VARIANTE_NO_ENCONTRADA";
+          "EMPRESA_NO_ASIGNADA";
 
         throw error;
       }
 
-      const variante =
-        variantes[0];
+      /*
+       * =================================
+       * VALIDAR USUARIO
+       * =================================
+       */
 
-      const stockAnterior =
-        Number(
-          variante.stock_actual ??
-            0,
+      if (!usuario_id) {
+        const error =
+          new Error(
+            "No se pudo identificar al usuario de la sesión.",
+          );
+
+        error.code =
+          "USUARIO_NO_ENCONTRADO";
+
+        throw error;
+      }
+
+      const [usuarios] =
+        await connection.query(
+          `
+            SELECT
+              id
+
+            FROM usuarios
+
+            WHERE
+              id = ?
+              AND empresa_id = ?
+              AND activo = TRUE
+
+            LIMIT 1
+          `,
+          [
+            usuario_id,
+            empresaId,
+          ],
         );
 
-      const stockNuevo =
-        stockAnterior + cantidad;
+      if (
+        usuarios.length ===
+        0
+      ) {
+        const error =
+          new Error(
+            "El usuario de la sesión no existe, está inactivo o no pertenece a la empresa.",
+          );
 
-      const subtotal =
-        cantidad * precioCosto;
+        error.code =
+          "USUARIO_NO_ENCONTRADO";
 
-      totalIngreso += subtotal;
+        throw error;
+      }
 
-      productosProcesados.push({
-        varianteId,
-        cantidad,
-        precioCosto,
-        subtotal,
-        stockAnterior,
-        stockNuevo,
-        productoNombre:
-          variante.producto_nombre,
-      });
-    }
+      /*
+       * =================================
+       * VALIDAR PROVEEDOR
+       * =================================
+       */
 
-    const [ingresoResult] =
-      await connection.query(
-        `
-          INSERT INTO ingresos
-          (
+      const [proveedores] =
+        await connection.query(
+          `
+      SELECT
+        id
+
+      FROM proveedores
+
+      WHERE
+        id = ?
+        AND empresa_id = ?
+
+      LIMIT 1
+    `,
+          [
+            proveedor_id,
+            empresaId,
+          ],
+        );
+      if (
+        proveedores.length ===
+        0
+      ) {
+        const error =
+          new Error(
+            "El proveedor seleccionado no existe o no pertenece a la empresa.",
+          );
+
+        error.code =
+          "PROVEEDOR_NO_ENCONTRADO";
+
+        throw error;
+      }
+
+      let totalIngreso =
+        0;
+
+      const productosProcesados =
+        [];
+
+      /*
+       * =================================
+       * VALIDAR VARIANTES
+       * =================================
+       */
+
+      for (
+        const item of productos
+      ) {
+        const varianteId =
+          Number(
+            item.variante_id,
+          );
+
+        const cantidad =
+          Number(
+            item.cantidad,
+          );
+
+        const precioCosto =
+          Number(
+            item.precio_costo,
+          );
+
+        const [variantes] =
+          await connection.query(
+            `
+              SELECT
+                pv.id,
+                pv.producto_id,
+                pv.stock_actual,
+
+                p.nombre AS producto_nombre
+
+              FROM producto_variantes pv
+
+              INNER JOIN productos p
+                ON p.id =
+                  pv.producto_id
+
+              WHERE
+                pv.id = ?
+                AND p.empresa_id = ?
+                AND p.activo = TRUE
+
+              FOR UPDATE
+            `,
+            [
+              varianteId,
+              empresaId,
+            ],
+          );
+
+        /*
+         * Si la variante existe pero pertenece
+         * a otra empresa, respondemos como si
+         * no existiera.
+         */
+
+        if (
+          variantes.length ===
+          0
+        ) {
+          const error =
+            new Error(
+              `La variante ${varianteId} no existe o no pertenece a la empresa.`,
+            );
+
+          error.code =
+            "VARIANTE_NO_ENCONTRADA";
+
+          throw error;
+        }
+
+        const variante =
+          variantes[0];
+
+        const stockAnterior =
+          Number(
+            variante.stock_actual ??
+            0,
+          );
+
+        const stockNuevo =
+          stockAnterior +
+          cantidad;
+
+        const subtotal =
+          cantidad *
+          precioCosto;
+
+        totalIngreso +=
+          subtotal;
+
+        productosProcesados.push(
+          {
+            varianteId,
+
+            productoId:
+              variante.producto_id,
+
+            cantidad,
+
+            precioCosto,
+
+            subtotal,
+
+            stockAnterior,
+
+            stockNuevo,
+
+            productoNombre:
+              variante.producto_nombre,
+          },
+        );
+      }
+
+      /*
+       * =================================
+       * CREAR INGRESO
+       * =================================
+       */
+
+      const [ingresoResult] =
+        await connection.query(
+          `
+            INSERT INTO ingresos
+            (
+              empresa_id,
+              proveedor_id,
+              numero_comprobante,
+              fecha,
+              total,
+              observaciones,
+              usuario_id
+            )
+
+            VALUES (
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?
+            )
+          `,
+          [
+            empresaId,
             proveedor_id,
             numero_comprobante,
             fecha,
-            total,
+            totalIngreso,
             observaciones,
-            usuario_id
-          )
+            usuario_id,
+          ],
+        );
 
-          VALUES (?, ?, ?, ?, ?, ?)
-        `,
-        [
-          proveedor_id,
-          numero_comprobante,
-          fecha,
-          totalIngreso,
-          observaciones,
-          usuario_id,
-        ],
-      );
+      const ingresoId =
+        ingresoResult.insertId;
 
-    const ingresoId =
-      ingresoResult.insertId;
+      /*
+       * =================================
+       * DETALLE + STOCK + MOVIMIENTOS
+       * =================================
+       */
 
-    for (
-      const item of productosProcesados
-    ) {
-      await connection.query(
-        `
-          INSERT INTO ingresos_detalle
-          (
-            ingreso_id,
-            variante_id,
-            cantidad,
-            precio_costo,
-            subtotal
-          )
+      for (
+        const item of productosProcesados
+      ) {
+        /*
+         * Detalle
+         */
 
-          VALUES (?, ?, ?, ?, ?)
-        `,
-        [
-          ingresoId,
-          item.varianteId,
-          item.cantidad,
-          item.precioCosto,
-          item.subtotal,
-        ],
-      );
+        await connection.query(
+          `
+            INSERT INTO ingresos_detalle
+            (
+              ingreso_id,
+              variante_id,
+              cantidad,
+              precio_costo,
+              subtotal
+            )
 
-      await connection.query(
-        `
-          UPDATE producto_variantes
+            VALUES (
+              ?,
+              ?,
+              ?,
+              ?,
+              ?
+            )
+          `,
+          [
+            ingresoId,
+            item.varianteId,
+            item.cantidad,
+            item.precioCosto,
+            item.subtotal,
+          ],
+        );
 
-          SET
-            stock_actual = ?,
-            precio_costo = ?
+        /*
+         * Actualizar stock.
+         *
+         * Como producto_variantes no tiene
+         * empresa_id, usamos EXISTS contra
+         * productos.
+         */
 
-          WHERE id = ?
-        `,
-        [
-          item.stockNuevo,
-          item.precioCosto,
-          item.varianteId,
-        ],
-      );
+        const [stockResult] =
+          await connection.query(
+            `
+              UPDATE producto_variantes pv
 
-      const referencia =
-        `Ingreso #${ingresoId}`;
+              SET
+                pv.stock_actual = ?,
+                pv.precio_costo = ?
 
-      const observacionMovimiento =
-        numero_comprobante
-          ? `Comprobante: ${numero_comprobante}`
-          : observaciones;
+              WHERE
+                pv.id = ?
 
-      await connection.query(
-        `
-          INSERT INTO movimientos_stock
-          (
-            variante_id,
-            tipo,
-            cantidad,
-            stock_anterior,
-            stock_nuevo,
+                AND EXISTS (
+                  SELECT 1
+
+                  FROM productos p
+
+                  WHERE
+                    p.id =
+                      pv.producto_id
+
+                    AND p.empresa_id = ?
+
+                    AND p.activo = TRUE
+                )
+            `,
+            [
+              item.stockNuevo,
+              item.precioCosto,
+              item.varianteId,
+              empresaId,
+            ],
+          );
+
+        if (
+          stockResult.affectedRows ===
+          0
+        ) {
+          const error =
+            new Error(
+              `No se pudo actualizar la variante ${item.varianteId}.`,
+            );
+
+          error.code =
+            "VARIANTE_NO_ENCONTRADA";
+
+          throw error;
+        }
+
+        /*
+         * Movimiento de stock
+         */
+
+        const referencia =
+          `Ingreso #${ingresoId}`;
+
+        const observacionMovimiento =
+          numero_comprobante
+            ? `Comprobante: ${numero_comprobante}`
+            : observaciones;
+
+        /*
+         * movimientos_stock no tiene empresa_id.
+         *
+         * La pertenencia queda determinada por
+         * variante -> producto -> empresa.
+         */
+
+        await connection.query(
+          `
+            INSERT INTO movimientos_stock
+            (
+              variante_id,
+              tipo,
+              cantidad,
+              stock_anterior,
+              stock_nuevo,
+              referencia,
+              usuario_id,
+              observacion
+            )
+
+            VALUES (
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?
+            )
+          `,
+          [
+            item.varianteId,
+            "INGRESO",
+            item.cantidad,
+            item.stockAnterior,
+            item.stockNuevo,
             referencia,
             usuario_id,
-            observacion
-          )
+            observacionMovimiento,
+          ],
+        );
+      }
 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          item.varianteId,
-          "INGRESO",
-          item.cantidad,
-          item.stockAnterior,
-          item.stockNuevo,
-          referencia,
-          usuario_id,
-          observacionMovimiento,
-        ],
+      await connection.commit();
+
+      return await obtenerIngresoPorId(
+        ingresoId,
+        empresaId,
       );
+    } catch (error) {
+      await connection.rollback();
+
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    await connection.commit();
-
-    return await obtenerIngresoPorId(
-      ingresoId,
-    );
-  } catch (error) {
-    await connection.rollback();
-
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
+  };
 
 module.exports = {
   obtenerIngresos,

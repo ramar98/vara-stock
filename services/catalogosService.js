@@ -1,44 +1,22 @@
-const db = require("../config/db");
+const db = require(
+  "../config/db",
+);
 
 const CONFIGURACION_CATALOGOS = {
   categorias: {
     tabla: "categorias",
-    relaciones: [
-      {
-        tabla: "productos",
-        columna: "categoria_id",
-      },
-    ],
   },
 
   marcas: {
     tabla: "marcas",
-    relaciones: [
-      {
-        tabla: "productos",
-        columna: "marca_id",
-      },
-    ],
   },
 
   colores: {
     tabla: "colores",
-    relaciones: [
-      {
-        tabla: "producto_variantes",
-        columna: "color_id",
-      },
-    ],
   },
 
   talles: {
     tabla: "talles",
-    relaciones: [
-      {
-        tabla: "producto_variantes",
-        columna: "talle_id",
-      },
-    ],
   },
 };
 
@@ -51,7 +29,8 @@ function obtenerConfiguracion(tipo) {
       "El catálogo solicitado no es válido.",
     );
 
-    error.code = "CATALOGO_NO_VALIDO";
+    error.code =
+      "CATALOGO_NO_VALIDO";
 
     throw error;
   }
@@ -61,7 +40,10 @@ function obtenerConfiguracion(tipo) {
 
 const obtenerElementos = async (
   tipo,
-  { busqueda = "" } = {},
+  empresaId,
+  {
+    busqueda = "",
+  } = {},
 ) => {
   const configuracion =
     obtenerConfiguracion(tipo);
@@ -70,21 +52,35 @@ const obtenerElementos = async (
     busqueda ?? "",
   ).trim();
 
-  const parametros = [];
-  let where = "";
+  const parametros = [
+    empresaId,
+  ];
+
+  let where = `
+    WHERE empresa_id = ?
+  `;
 
   if (texto) {
-    where = "WHERE nombre LIKE ?";
-    parametros.push(`%${texto}%`);
+    where += `
+      AND nombre LIKE ?
+    `;
+
+    parametros.push(
+      `%${texto}%`,
+    );
   }
 
   const [rows] = await db.query(
     `
       SELECT
         id,
+        empresa_id,
         nombre
+
       FROM ${configuracion.tabla}
+
       ${where}
+
       ORDER BY nombre ASC
     `,
     parametros,
@@ -96,6 +92,7 @@ const obtenerElementos = async (
 const obtenerElementoPorId = async (
   tipo,
   id,
+  empresaId,
 ) => {
   const configuracion =
     obtenerConfiguracion(tipo);
@@ -104,12 +101,20 @@ const obtenerElementoPorId = async (
     `
       SELECT
         id,
+        empresa_id,
         nombre
+
       FROM ${configuracion.tabla}
+
       WHERE id = ?
+        AND empresa_id = ?
+
       LIMIT 1
     `,
-    [id],
+    [
+      id,
+      empresaId,
+    ],
   );
 
   return rows[0] ?? null;
@@ -118,27 +123,42 @@ const obtenerElementoPorId = async (
 const existeNombre = async (
   tipo,
   nombre,
+  empresaId,
   excluirId = null,
 ) => {
   const configuracion =
     obtenerConfiguracion(tipo);
 
-  const parametros = [nombre];
+  const parametros = [
+    empresaId,
+    nombre,
+  ];
 
   let condicionExcluir = "";
 
   if (excluirId) {
-    condicionExcluir = "AND id <> ?";
-    parametros.push(excluirId);
+    condicionExcluir =
+      "AND id <> ?";
+
+    parametros.push(
+      excluirId,
+    );
   }
 
   const [rows] = await db.query(
     `
-      SELECT id
+      SELECT
+        id
+
       FROM ${configuracion.tabla}
-      WHERE LOWER(TRIM(nombre)) =
+
+      WHERE empresa_id = ?
+
+        AND LOWER(TRIM(nombre)) =
             LOWER(TRIM(?))
+
         ${condicionExcluir}
+
       LIMIT 1
     `,
     parametros,
@@ -149,20 +169,28 @@ const existeNombre = async (
 
 const crearElemento = async (
   tipo,
-  { nombre },
+  empresaId,
+  {
+    nombre,
+  },
 ) => {
   const configuracion =
     obtenerConfiguracion(tipo);
 
   const nombreExiste =
-    await existeNombre(tipo, nombre);
+    await existeNombre(
+      tipo,
+      nombre,
+      empresaId,
+    );
 
   if (nombreExiste) {
     const error = new Error(
       "Ya existe un elemento con ese nombre.",
     );
 
-    error.code = "ELEMENTO_DUPLICADO";
+    error.code =
+      "ELEMENTO_DUPLICADO";
 
     throw error;
   }
@@ -171,29 +199,42 @@ const crearElemento = async (
     `
       INSERT INTO ${configuracion.tabla}
       (
+        empresa_id,
         nombre
       )
-      VALUES (?)
+
+      VALUES (?, ?)
     `,
-    [nombre],
+    [
+      empresaId,
+      nombre,
+    ],
   );
 
   return obtenerElementoPorId(
     tipo,
     result.insertId,
+    empresaId,
   );
 };
 
 const actualizarElemento = async (
   tipo,
   id,
-  { nombre },
+  empresaId,
+  {
+    nombre,
+  },
 ) => {
   const configuracion =
     obtenerConfiguracion(tipo);
 
   const elementoActual =
-    await obtenerElementoPorId(tipo, id);
+    await obtenerElementoPorId(
+      tipo,
+      id,
+      empresaId,
+    );
 
   if (!elementoActual) {
     return null;
@@ -203,6 +244,7 @@ const actualizarElemento = async (
     await existeNombre(
       tipo,
       nombre,
+      empresaId,
       id,
     );
 
@@ -211,44 +253,144 @@ const actualizarElemento = async (
       "Ya existe otro elemento con ese nombre.",
     );
 
-    error.code = "ELEMENTO_DUPLICADO";
+    error.code =
+      "ELEMENTO_DUPLICADO";
 
     throw error;
   }
 
-  await db.query(
+  const [result] = await db.query(
     `
       UPDATE ${configuracion.tabla}
+
       SET nombre = ?
+
       WHERE id = ?
+        AND empresa_id = ?
     `,
-    [nombre, id],
+    [
+      nombre,
+      id,
+      empresaId,
+    ],
   );
 
-  return obtenerElementoPorId(tipo, id);
+  if (result.affectedRows === 0) {
+    return null;
+  }
+
+  return obtenerElementoPorId(
+    tipo,
+    id,
+    empresaId,
+  );
 };
 
 const tieneRelaciones = async (
-  configuracion,
+  tipo,
   id,
+  empresaId,
 ) => {
-  for (
-    const relacion of configuracion.relaciones
-  ) {
+  if (tipo === "categorias") {
     const [rows] = await db.query(
       `
-        SELECT COUNT(*) AS cantidad
-        FROM ${relacion.tabla}
-        WHERE ${relacion.columna} = ?
+        SELECT
+          COUNT(*) AS cantidad
+
+        FROM productos
+
+        WHERE categoria_id = ?
+          AND empresa_id = ?
       `,
-      [id],
+      [
+        id,
+        empresaId,
+      ],
     );
 
-    if (
-      Number(rows[0]?.cantidad ?? 0) > 0
-    ) {
-      return true;
-    }
+    return (
+      Number(
+        rows[0]?.cantidad ?? 0,
+      ) > 0
+    );
+  }
+
+  if (tipo === "marcas") {
+    const [rows] = await db.query(
+      `
+        SELECT
+          COUNT(*) AS cantidad
+
+        FROM productos
+
+        WHERE marca_id = ?
+          AND empresa_id = ?
+      `,
+      [
+        id,
+        empresaId,
+      ],
+    );
+
+    return (
+      Number(
+        rows[0]?.cantidad ?? 0,
+      ) > 0
+    );
+  }
+
+  if (tipo === "colores") {
+    const [rows] = await db.query(
+      `
+        SELECT
+          COUNT(*) AS cantidad
+
+        FROM producto_variantes v
+
+        INNER JOIN productos p
+          ON p.id = v.producto_id
+
+        WHERE v.color_id = ?
+          AND p.empresa_id = ?
+      `,
+      [
+        id,
+        empresaId,
+      ],
+    );
+
+    return (
+      Number(
+        rows[0]?.cantidad ?? 0,
+      ) > 0
+    );
+  }
+
+  if (tipo === "talles") {
+    const [rows] = await db.query(
+      `
+        SELECT
+          COUNT(*) AS cantidad
+
+        FROM producto_variantes v
+
+        INNER JOIN productos p
+          ON p.id = v.producto_id
+
+        WHERE v.talle_id = ?
+          AND p.empresa_id = ?
+      `,
+      [
+        id,
+        empresaId,
+      ],
+    );
+
+    return (
+      Number(
+        rows[0]?.cantidad ?? 0,
+      ) > 0
+    );
   }
 
   return false;
@@ -257,6 +399,7 @@ const tieneRelaciones = async (
 const eliminarElemento = async (
   tipo,
   id,
+  empresaId,
 ) => {
   const configuracion =
     obtenerConfiguracion(tipo);
@@ -265,34 +408,43 @@ const eliminarElemento = async (
     await obtenerElementoPorId(
       tipo,
       id,
+      empresaId,
     );
 
   if (!elemento) {
     return {
       eliminado: false,
-      motivo: "NO_ENCONTRADO",
+      motivo:
+        "NO_ENCONTRADO",
     };
   }
 
   const relacionado =
     await tieneRelaciones(
-      configuracion,
+      tipo,
       id,
+      empresaId,
     );
 
   if (relacionado) {
     return {
       eliminado: false,
-      motivo: "TIENE_RELACIONES",
+      motivo:
+        "TIENE_RELACIONES",
     };
   }
 
   const [result] = await db.query(
     `
       DELETE FROM ${configuracion.tabla}
+
       WHERE id = ?
+        AND empresa_id = ?
     `,
-    [id],
+    [
+      id,
+      empresaId,
+    ],
   );
 
   return {

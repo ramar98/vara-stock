@@ -15,6 +15,25 @@ function convertirId(valor) {
   return id;
 }
 
+function obtenerEmpresaId(req) {
+  const empresaId =
+    Number(
+      req.empresaId ??
+        req.usuario?.empresa_id,
+    );
+
+  if (
+    !Number.isInteger(
+      empresaId,
+    ) ||
+    empresaId <= 0
+  ) {
+    return null;
+  }
+
+  return empresaId;
+}
+
 function normalizarTextoOpcional(
   valor,
 ) {
@@ -50,7 +69,7 @@ function esAdministrador(req) {
 
 /*
  * ===================================
- * FILTRADO DE DATOS SEGÚN ROL
+ * FILTRADO SEGÚN ROL
  * ===================================
  */
 
@@ -70,10 +89,6 @@ function filtrarVariantePorRol(
     ...variante,
   };
 
-  /*
-   * Datos sensibles.
-   * Nunca se envían al Vendedor.
-   */
   delete varianteSegura.precio_costo;
   delete varianteSegura.margen;
 
@@ -85,7 +100,9 @@ function filtrarVariantesPorRol(
   administrador,
 ) {
   if (
-    !Array.isArray(variantes)
+    !Array.isArray(
+      variantes,
+    )
   ) {
     return [];
   }
@@ -101,7 +118,7 @@ function filtrarVariantesPorRol(
 
 /*
  * ===================================
- * PROTECCIÓN DE OPERACIONES
+ * PROTECCIÓN ADMINISTRADOR
  * ===================================
  */
 
@@ -109,23 +126,45 @@ function verificarAdministrador(
   req,
   res,
 ) {
-  if (esAdministrador(req)) {
+  if (
+    esAdministrador(req)
+  ) {
     return true;
   }
 
-  res.status(403).json({
-    success: false,
+  res
+    .status(403)
+    .json({
+      success: false,
 
-    message:
-      "No tenés permisos para realizar esta operación.",
+      message:
+        "No tenés permisos para realizar esta operación.",
 
-    error: {
-      code:
-        "PERMISO_DENEGADO",
-    },
-  });
+      error: {
+        code:
+          "PERMISO_DENEGADO",
+      },
+    });
 
   return false;
+}
+
+function responderEmpresaNoValida(
+  res,
+) {
+  return res
+    .status(403)
+    .json({
+      success: false,
+
+      message:
+        "No se pudo determinar la empresa del usuario autenticado.",
+
+      error: {
+        code:
+          "EMPRESA_NO_ASIGNADA",
+      },
+    });
 }
 
 /*
@@ -232,10 +271,12 @@ function validarVariante(
 
   if (
     creando &&
-    (!Number.isInteger(
-      stockActual,
-    ) ||
-      stockActual < 0)
+    (
+      !Number.isInteger(
+        stockActual,
+      ) ||
+      stockActual < 0
+    )
   ) {
     errores.push(
       "El stock inicial no es válido.",
@@ -260,7 +301,8 @@ function validarVariante(
 
   if (
     codigoBarras &&
-    codigoBarras.length > 100
+    codigoBarras.length >
+      100
   ) {
     errores.push(
       "El código de barras no puede superar los 100 caracteres.",
@@ -303,7 +345,7 @@ function validarVariante(
 
 /*
  * ===================================
- * MANEJO DE ERRORES
+ * ERRORES
  * ===================================
  */
 
@@ -317,6 +359,29 @@ function responderError(
   ) {
     return res
       .status(409)
+      .json({
+        success: false,
+
+        message:
+          error.message,
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+      "PRODUCTO_NO_ENCONTRADO" ||
+    error.code ===
+      "COLOR_NO_ENCONTRADO" ||
+    error.code ===
+      "TALLE_NO_ENCONTRADO"
+  ) {
+    return res
+      .status(404)
       .json({
         success: false,
 
@@ -402,7 +467,10 @@ function responderError(
  */
 
 exports.obtenerVariantes =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     const productoId =
       convertirId(
         req.params.producto_id,
@@ -419,10 +487,20 @@ exports.obtenerVariantes =
         });
     }
 
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const variantes =
         await variantesService.obtenerVariantes(
           productoId,
+          empresaId,
         );
 
       const administrador =
@@ -457,7 +535,10 @@ exports.obtenerVariantes =
  */
 
 exports.obtenerVariante =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     const id =
       convertirId(
         req.params.id,
@@ -474,10 +555,20 @@ exports.obtenerVariante =
         });
     }
 
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
     try {
       const variante =
         await variantesService.obtenerVariantePorId(
           id,
+          empresaId,
         );
 
       if (!variante) {
@@ -524,7 +615,10 @@ exports.obtenerVariante =
  */
 
 exports.crearVariante =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     if (
       !verificarAdministrador(
         req,
@@ -532,6 +626,15 @@ exports.crearVariante =
       )
     ) {
       return;
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
     }
 
     const validacion =
@@ -562,6 +665,7 @@ exports.crearVariante =
       const variante =
         await variantesService.crearVariante(
           validacion.datos,
+          empresaId,
         );
 
       return res
@@ -591,7 +695,10 @@ exports.crearVariante =
  */
 
 exports.actualizarVariante =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     if (
       !verificarAdministrador(
         req,
@@ -599,6 +706,15 @@ exports.actualizarVariante =
       )
     ) {
       return;
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
     }
 
     const id =
@@ -646,6 +762,7 @@ exports.actualizarVariante =
         await variantesService.actualizarVariante(
           id,
           validacion.datos,
+          empresaId,
         );
 
       if (!variante) {
@@ -686,7 +803,10 @@ exports.actualizarVariante =
  */
 
 exports.eliminarVariante =
-  async (req, res) => {
+  async (
+    req,
+    res,
+  ) => {
     if (
       !verificarAdministrador(
         req,
@@ -694,6 +814,15 @@ exports.eliminarVariante =
       )
     ) {
       return;
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
     }
 
     const id =
@@ -716,6 +845,7 @@ exports.eliminarVariante =
       const resultado =
         await variantesService.eliminarVariante(
           id,
+          empresaId,
         );
 
       if (
