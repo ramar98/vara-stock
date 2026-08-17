@@ -13,6 +13,10 @@ const authRoutes = require(
   "./routes/authRoutes",
 );
 
+const empresasRoutes = require(
+  "./routes/empresasRoutes",
+);
+
 const productosRoutes = require(
   "./routes/productosRoutes",
 );
@@ -127,16 +131,57 @@ app.get(
 
 /*
  * IMPORTANTE:
- * Auth debe declararse ANTES
- * del middleware global de autenticación.
  *
- * De lo contrario /api/auth/login
- * también pediría token.
+ * Estas rutas deben declararse
+ * ANTES del middleware global:
+ *
+ * app.use(
+ *   "/api",
+ *   verificarAutenticacion,
+ * );
+ *
+ * porque pueden utilizarse
+ * sin una sesión existente.
+ */
+
+/*
+ * ============================
+ * AUTENTICACIÓN
+ * ============================
+ *
+ * /api/auth/login
+ *
+ * authRoutes protege internamente
+ * las rutas que sí requieren sesión,
+ * como /me y /register.
  */
 
 app.use(
   "/api/auth",
   authRoutes,
+);
+
+/*
+ * ============================
+ * ALTA DE EMPRESAS
+ * ============================
+ *
+ * POST /api/empresas
+ *
+ * Permite crear:
+ *
+ * - empresa
+ * - usuario administrador
+ * - configuración inicial
+ *
+ * El usuario todavía no tiene
+ * sesión porque justamente estamos
+ * creando su empresa por primera vez.
+ */
+
+app.use(
+  "/api/empresas",
+  empresasRoutes,
 );
 
 // =======================
@@ -259,6 +304,7 @@ app.use(
  * CATÁLOGOS ADMINISTRATIVOS
  *
  * Ejemplo:
+ *
  * /api/admin/catalogos/categorias
  * /api/admin/catalogos/marcas
  */
@@ -295,21 +341,6 @@ app.use(
  *
  * Esta ruta debe estar ANTES
  * de catalogosRoutes.
- *
- * catalogosRoutes está montado
- * directamente sobre /api y puede
- * contener rutas dinámicas como:
- *
- * /:tipo
- *
- * Si usuarios estuviera después,
- * Express podría interpretar:
- *
- * /api/usuarios
- *
- * como:
- *
- * tipo = "usuarios"
  */
 
 app.use(
@@ -322,24 +353,17 @@ app.use(
  * CATÁLOGOS GENERALES
  * ============================
  *
- * IMPORTANTE:
- *
- * Este router está montado sobre
- * /api porque contiene rutas como:
+ * Este router está montado sobre /api
+ * porque contiene:
  *
  * /api/categorias
  * /api/marcas
  * /api/colores
  * /api/talles
+ * /api/proveedores
  *
- * Debe quedar DESPUÉS de las rutas
- * específicas para evitar que una
- * ruta dinámica intercepte:
- *
- * /api/usuarios
- * /api/dashboard
- * /api/ventas
- * etc.
+ * Debe quedar después de las rutas
+ * específicas.
  */
 
 app.use(
@@ -352,13 +376,13 @@ app.use(
 // =======================
 
 /*
- * Al estar después del middleware
- * global:
+ * Esta ruta queda protegida porque
+ * está declarada después de:
  *
- * app.use("/api", verificarAutenticacion)
- *
- * esta ruta también requiere
- * autenticación.
+ * app.use(
+ *   "/api",
+ *   verificarAutenticacion,
+ * );
  */
 
 app.get(

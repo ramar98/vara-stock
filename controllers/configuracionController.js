@@ -36,7 +36,7 @@ function validarEmail(email) {
 function obtenerEmpresaId(req) {
   const empresaId = Number(
     req.empresaId ??
-      req.usuario?.empresa_id,
+    req.usuario?.empresa_id,
   );
 
   if (
@@ -194,7 +194,7 @@ function validarConfiguracion(
   if (
     encabezadoComprobante &&
     encabezadoComprobante.length >
-      250
+    250
   ) {
     errores.push(
       "El encabezado del comprobante no puede superar los 250 caracteres.",
@@ -278,17 +278,82 @@ function responderError(
 
       error:
         process.env.NODE_ENV ===
-        "development"
+          "development"
           ? {
-              code:
-                error.code,
+            code:
+              error.code,
 
-              detail:
-                error.message,
-            }
+            detail:
+              error.message,
+          }
           : undefined,
     });
 }
+
+/*
+ * =====================================
+ * VALIDAR LOGO
+ * =====================================
+ */
+
+function validarLogo(
+  logoData,
+) {
+  if (
+    typeof logoData !==
+    "string"
+  ) {
+    return {
+      valido: false,
+
+      message:
+        "El logo no es válido.",
+    };
+  }
+
+  const logo =
+    logoData.trim();
+
+  const formatoValido =
+    /^data:image\/(png|jpeg|webp);base64,/i.test(
+      logo,
+    );
+
+  if (!formatoValido) {
+    return {
+      valido: false,
+
+      message:
+        "El logo debe ser una imagen PNG, JPG o WEBP.",
+    };
+  }
+
+  /*
+   * Data URL incluye aproximadamente
+   * 33% de sobrecarga respecto al archivo.
+   *
+   * Limitamos a ~700 KB de texto para
+   * mantener logos pequeños.
+   */
+
+  if (
+    logo.length > 700000
+  ) {
+    return {
+      valido: false,
+
+      message:
+        "El logo no puede superar los 500 KB.",
+    };
+  }
+
+  return {
+    valido: true,
+
+    logo,
+  };
+}
+
 
 /*
  * =====================================
@@ -398,6 +463,137 @@ exports.actualizarConfiguracion =
 
           message:
             "Configuración actualizada correctamente.",
+
+          data:
+            configuracion,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+* =====================================
+* ACTUALIZAR LOGO
+* =====================================
+*/
+
+exports.actualizarLogo =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    const validacion =
+      validarLogo(
+        req.body?.logo_data,
+      );
+
+    if (!validacion.valido) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            validacion.message,
+        });
+    }
+
+    try {
+      const configuracion =
+        await configuracionService
+          .actualizarLogo(
+            empresaId,
+            validacion.logo,
+          );
+
+      if (!configuracion) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "No se encontró la configuración del negocio.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Logo actualizado correctamente.",
+
+          data:
+            configuracion,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ELIMINAR LOGO
+ * =====================================
+ */
+
+exports.eliminarLogo =
+  async (
+    req,
+    res,
+  ) => {
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    try {
+      const configuracion =
+        await configuracionService
+          .eliminarLogo(
+            empresaId,
+          );
+
+      if (!configuracion) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "No se encontró la configuración del negocio.",
+          });
+      }
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Logo eliminado correctamente.",
 
           data:
             configuracion,

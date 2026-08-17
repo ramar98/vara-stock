@@ -57,13 +57,13 @@ function normalizarConfiguracion(
     porcentaje_iva:
       Number(
         fila.porcentaje_iva ??
-          0,
+        0,
       ),
 
     stock_minimo_predeterminado:
       Number(
         fila.stock_minimo_predeterminado ??
-          0,
+        0,
       ),
   };
 }
@@ -89,6 +89,7 @@ const obtenerConfiguracionPorEmpresa =
             telefono,
             email,
             direccion,
+            logo_data,
             moneda,
             porcentaje_iva,
             stock_minimo_predeterminado,
@@ -167,7 +168,7 @@ const crearConfiguracionPredeterminada =
     const nombreEmpresa =
       String(
         empresas[0].nombre ??
-          "",
+        "",
       ).trim() ||
       CONFIGURACION_PREDETERMINADA.nombre_negocio;
 
@@ -307,6 +308,7 @@ const obtenerConfiguracionPorId =
             telefono,
             email,
             direccion,
+            logo_data,
             moneda,
             porcentaje_iva,
             stock_minimo_predeterminado,
@@ -411,7 +413,102 @@ const actualizarConfiguracion =
     );
   };
 
+/*
+* =====================================
+* ACTUALIZAR LOGO
+* =====================================
+*/
+
+const actualizarLogo =
+  async (
+    empresaId,
+    logoData,
+  ) => {
+    const configuracion =
+      await obtenerConfiguracion(
+        empresaId,
+      );
+
+    if (!configuracion) {
+      return null;
+    }
+
+    const [resultado] =
+      await db.query(
+        `
+          UPDATE configuracion_negocio
+
+          SET
+            logo_data = ?
+
+          WHERE
+            id = ?
+            AND empresa_id = ?
+        `,
+        [
+          logoData,
+          configuracion.id,
+          empresaId,
+        ],
+      );
+
+    if (
+      resultado.affectedRows === 0
+    ) {
+      return null;
+    }
+
+    return obtenerConfiguracionPorId(
+      configuracion.id,
+      empresaId,
+    );
+  };
+
+/*
+ * =====================================
+ * ELIMINAR LOGO
+ * =====================================
+ */
+
+const eliminarLogo =
+  async (
+    empresaId,
+  ) => {
+    const configuracion =
+      await obtenerConfiguracion(
+        empresaId,
+      );
+
+    if (!configuracion) {
+      return null;
+    }
+
+    await db.query(
+      `
+        UPDATE configuracion_negocio
+
+        SET
+          logo_data = NULL
+
+        WHERE
+          id = ?
+          AND empresa_id = ?
+      `,
+      [
+        configuracion.id,
+        empresaId,
+      ],
+    );
+
+    return obtenerConfiguracionPorId(
+      configuracion.id,
+      empresaId,
+    );
+  };
+
 module.exports = {
   obtenerConfiguracion,
   actualizarConfiguracion,
+  actualizarLogo,
+  eliminarLogo,
 };

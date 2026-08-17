@@ -1,6 +1,7 @@
 const express = require("express");
 
-const router = express.Router();
+const router =
+  express.Router();
 
 const configuracionController =
   require(
@@ -39,7 +40,8 @@ router.get(
     "Administrador",
     "Vendedor",
   ),
-  configuracionController.obtenerConfiguracion,
+  configuracionController
+    .obtenerConfiguracion,
 );
 
 /*
@@ -55,7 +57,42 @@ router.put(
   autorizarRoles(
     "Administrador",
   ),
-  configuracionController.actualizarConfiguracion,
+  configuracionController
+    .actualizarConfiguracion,
+);
+
+/*
+ * =====================================
+ * ACTUALIZAR LOGO
+ * =====================================
+ *
+ * Sólo Administrador.
+ */
+
+router.put(
+  "/logo",
+  autorizarRoles(
+    "Administrador",
+  ),
+  configuracionController
+    .actualizarLogo,
+);
+
+/*
+ * =====================================
+ * ELIMINAR LOGO
+ * =====================================
+ *
+ * Sólo Administrador.
+ */
+
+router.delete(
+  "/logo",
+  autorizarRoles(
+    "Administrador",
+  ),
+  configuracionController
+    .eliminarLogo,
 );
 
 module.exports = router;
