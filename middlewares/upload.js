@@ -4,47 +4,68 @@ const fs = require("fs");
 
 /*
  * =====================================
- * CARPETA DE IMÁGENES
+ * VOLUME
  * =====================================
  *
- * En Railway:
+ * Railway define automáticamente:
  *
- * process.cwd() = /app
+ * RAILWAY_VOLUME_MOUNT_PATH=/app/uploads
  *
- * por lo tanto físicamente será:
+ * En desarrollo local, donde esa
+ * variable no existe, usamos:
  *
- * /app/uploads/productos
- *
- * y eso está dentro del Volume
- * montado en:
- *
- * /app/uploads
+ * <proyecto>/uploads
  */
 
-const uploadDirFisico =
+const uploadsRoot =
+  process.env.RAILWAY_VOLUME_MOUNT_PATH ||
   path.join(
     process.cwd(),
     "uploads",
+  );
+
+const productosDir =
+  path.join(
+    uploadsRoot,
     "productos",
   );
 
 /*
- * Creamos la carpeta productos
- * si todavía no existe.
+ * Creamos la carpeta si no existe.
  */
 
-if (
-  !fs.existsSync(
-    uploadDirFisico,
-  )
-) {
-  fs.mkdirSync(
-    uploadDirFisico,
-    {
-      recursive: true,
-    },
-  );
-}
+fs.mkdirSync(
+  productosDir,
+  {
+    recursive: true,
+  },
+);
+
+/*
+ * =====================================
+ * DEBUG
+ * =====================================
+ */
+
+console.log(
+  "======================================",
+);
+
+console.log(
+  "RAILWAY_VOLUME_MOUNT_PATH:",
+  process.env
+    .RAILWAY_VOLUME_MOUNT_PATH ||
+    "NO DEFINIDO",
+);
+
+console.log(
+  "Carpeta física de imágenes:",
+  productosDir,
+);
+
+console.log(
+  "======================================",
+);
 
 /*
  * =====================================
@@ -59,26 +80,9 @@ const storage =
       file,
       cb,
     ) => {
-      /*
-       * IMPORTANTE:
-       *
-       * usamos una ruta RELATIVA.
-       *
-       * De esta manera req.file.path será:
-       *
-       * uploads/productos/archivo.jpg
-       *
-       * y NO:
-       *
-       * /app/uploads/productos/archivo.jpg
-       */
-
       cb(
         null,
-        path.join(
-          "uploads",
-          "productos",
-        ),
+        productosDir,
       );
     },
 
@@ -87,11 +91,6 @@ const storage =
       file,
       cb,
     ) => {
-      /*
-       * Evitamos problemas con nombres
-       * repetidos.
-       */
-
       const extension =
         path.extname(
           file.originalname,
@@ -120,7 +119,7 @@ const storage =
 
 /*
  * =====================================
- * TIPOS PERMITIDOS
+ * FILTRO
  * =====================================
  */
 
@@ -129,14 +128,14 @@ const fileFilter = (
   file,
   cb,
 ) => {
-  const tipos = [
+  const tiposPermitidos = [
     "image/jpeg",
     "image/png",
     "image/webp",
   ];
 
   if (
-    tipos.includes(
+    tiposPermitidos.includes(
       file.mimetype,
     )
   ) {
@@ -155,9 +154,9 @@ const fileFilter = (
 };
 
 /*
- * =====================================
+ * ====================================
  * MULTER
- * =====================================
+ * ====================================
  */
 
 const upload =
