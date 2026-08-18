@@ -239,6 +239,28 @@ exports.subirImagen =
     }
 
     try {
+      /*
+       * IMPORTANTE:
+       *
+       * Guardamos en BD una ruta RELATIVA:
+       *
+       * uploads/productos/archivo.jpg
+       *
+       * y no:
+       *
+       * /app/uploads/productos/archivo.jpg
+       *
+       * El archivo físico sí queda dentro de:
+       *
+       * /app/uploads/productos
+       *
+       * que está respaldado por el Volume
+       * de Railway.
+       */
+
+      const rutaRelativa =
+        `uploads/productos/${req.file.filename}`;
+
       const imagen =
         await imagenesService.guardarImagen(
           {
@@ -246,7 +268,7 @@ exports.subirImagen =
               productoId,
 
             ruta:
-              req.file.path,
+              rutaRelativa,
 
             principal:
               convertirBooleano(
@@ -276,7 +298,7 @@ exports.subirImagen =
 
 /*
  * =====================================
- * MARCAR PRINCIPAL
+ * MARCAR COMO PRINCIPAL
  * =====================================
  */
 
