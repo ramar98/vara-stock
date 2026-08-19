@@ -140,11 +140,31 @@ function filtrarProductoPorRol(
     ...producto,
   };
 
+  /*
+   * Costo calculado / agregado
+   * en consultas existentes.
+   */
+
   delete productoSeguro
     .precio_costo;
 
+  /*
+   * Nuevo precio base de costo.
+   *
+   * Un vendedor no debería
+   * poder verlo.
+   */
+
+  delete productoSeguro
+    .precio_costo_default;
+
   delete productoSeguro
     .margen;
+
+  /*
+   * También ocultamos el costo
+   * de cada variante.
+   */
 
   if (
     Array.isArray(
@@ -212,6 +232,12 @@ function validarProducto(
       body.nombre,
     );
 
+  /*
+   * =====================================
+   * DATOS GENERALES
+   * =====================================
+   */
+
   if (!codigo) {
     errores.push(
       "El código es obligatorio.",
@@ -252,6 +278,12 @@ function validarProducto(
       "La descripción debe ser un texto.",
     );
   }
+
+  /*
+   * =====================================
+   * RELACIONES
+   * =====================================
+   */
 
   const camposRelacionados = [
     [
@@ -300,6 +332,101 @@ function validarProducto(
     }
   }
 
+  /*
+   * =====================================
+   * PRECIO DE COSTO PREDETERMINADO
+   * =====================================
+   */
+
+  const precioCostoDefault =
+    Number(
+      body.precio_costo_default,
+    );
+
+  if (
+    body.precio_costo_default ===
+      undefined ||
+    body.precio_costo_default ===
+      null ||
+    body.precio_costo_default ===
+      "" ||
+    Number.isNaN(
+      precioCostoDefault,
+    ) ||
+    precioCostoDefault < 0
+  ) {
+    errores.push(
+      "El precio de costo debe ser un número mayor o igual a cero.",
+    );
+  }
+
+  /*
+   * =====================================
+   * PRECIO DE VENTA PREDETERMINADO
+   * =====================================
+   */
+
+  const precioVentaDefault =
+    Number(
+      body.precio_venta_default,
+    );
+
+  if (
+    body.precio_venta_default ===
+      undefined ||
+    body.precio_venta_default ===
+      null ||
+    body.precio_venta_default ===
+      "" ||
+    Number.isNaN(
+      precioVentaDefault,
+    ) ||
+    precioVentaDefault < 0
+  ) {
+    errores.push(
+      "El precio de venta debe ser un número mayor o igual a cero.",
+    );
+  }
+
+  /*
+   * =====================================
+   * VENTA MENOR AL COSTO
+   * =====================================
+   */
+
+  if (
+    body.precio_costo_default !==
+      undefined &&
+    body.precio_costo_default !==
+      null &&
+    body.precio_costo_default !==
+      "" &&
+    body.precio_venta_default !==
+      undefined &&
+    body.precio_venta_default !==
+      null &&
+    body.precio_venta_default !==
+      "" &&
+    !Number.isNaN(
+      precioCostoDefault,
+    ) &&
+    !Number.isNaN(
+      precioVentaDefault,
+    ) &&
+    precioVentaDefault <
+      precioCostoDefault
+  ) {
+    errores.push(
+      "El precio de venta no puede ser menor al precio de costo.",
+    );
+  }
+
+  /*
+   * =====================================
+   * RESULTADO
+   * =====================================
+   */
+
   return {
     valido:
       errores.length === 0,
@@ -330,6 +457,12 @@ function validarProducto(
         normalizarIdOpcional(
           body.proveedor_id,
         ),
+
+      precio_costo_default:
+        precioCostoDefault,
+
+      precio_venta_default:
+        precioVentaDefault,
     },
   };
 }

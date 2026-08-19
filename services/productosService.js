@@ -146,6 +146,9 @@ const obtenerProductos =
             p.marca_id,
             p.proveedor_id,
 
+            p.precio_costo_default,
+            p.precio_venta_default,
+
             c.nombre AS categoria,
             m.nombre AS marca,
             pr.nombre AS proveedor,
@@ -183,7 +186,7 @@ const obtenerProductos =
 
               WHERE
                 pi.producto_id =
-                p.id
+                  p.id
 
               ORDER BY
                 pi.principal DESC,
@@ -229,6 +232,8 @@ const obtenerProductos =
             p.categoria_id,
             p.marca_id,
             p.proveedor_id,
+            p.precio_costo_default,
+            p.precio_venta_default,
             c.nombre,
             m.nombre,
             pr.nombre
@@ -267,6 +272,10 @@ const obtenerProductoPorId =
             p.categoria_id,
             p.marca_id,
             p.proveedor_id,
+
+            p.precio_costo_default,
+            p.precio_venta_default,
+
             p.activo,
             p.created_at,
             p.updated_at,
@@ -438,6 +447,9 @@ const crearProducto =
       categoria_id = null,
       marca_id = null,
       proveedor_id = null,
+
+      precio_costo_default,
+      precio_venta_default,
     } = data;
 
     /*
@@ -465,10 +477,15 @@ const crearProducto =
             descripcion,
             categoria_id,
             marca_id,
-            proveedor_id
+            proveedor_id,
+
+            precio_costo_default,
+            precio_venta_default
           )
 
           VALUES (
+            ?,
+            ?,
             ?,
             ?,
             ?,
@@ -486,6 +503,9 @@ const crearProducto =
           categoria_id,
           marca_id,
           proveedor_id,
+
+          precio_costo_default,
+          precio_venta_default,
         ],
       );
 
@@ -514,6 +534,9 @@ const actualizarProducto =
       categoria_id = null,
       marca_id = null,
       proveedor_id = null,
+
+      precio_costo_default,
+      precio_venta_default,
     } = data;
 
     await validarRelacionesProducto(
@@ -536,7 +559,10 @@ const actualizarProducto =
             descripcion = ?,
             categoria_id = ?,
             marca_id = ?,
-            proveedor_id = ?
+            proveedor_id = ?,
+
+            precio_costo_default = ?,
+            precio_venta_default = ?
 
           WHERE
             id = ?
@@ -550,6 +576,10 @@ const actualizarProducto =
           categoria_id,
           marca_id,
           proveedor_id,
+
+          precio_costo_default,
+          precio_venta_default,
+
           id,
           empresaId,
         ],
