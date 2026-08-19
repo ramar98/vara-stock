@@ -663,6 +663,7 @@ const obtenerStockActual =
             p.id AS producto_id,
             p.codigo AS producto_codigo,
             p.nombre AS producto_nombre,
+            p.usa_variantes,
 
             pv.id AS variante_id,
             pv.codigo_barras,
@@ -723,6 +724,12 @@ const obtenerStockActual =
         producto_id:
           Number(
             fila.producto_id,
+          ),
+
+        usa_variantes:
+          Number(
+            fila.usa_variantes ??
+              1,
           ),
 
         variante_id:

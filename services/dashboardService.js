@@ -329,6 +329,7 @@ const obtenerResumen =
               p.id AS producto_id,
               p.codigo AS producto_codigo,
               p.nombre AS producto_nombre,
+              p.usa_variantes,
 
               c.nombre AS color,
               t.nombre AS talle,
@@ -673,6 +674,7 @@ const obtenerProductosStockBajo =
 
             p.codigo AS producto_codigo,
             p.nombre AS producto_nombre,
+            p.usa_variantes,
 
             c.nombre AS color,
             t.nombre AS talle

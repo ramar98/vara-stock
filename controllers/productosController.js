@@ -97,6 +97,45 @@ function normalizarIdOpcional(
 
 /*
  * =====================================
+ * BOOLEANO
+ * =====================================
+ */
+
+function normalizarBooleano(
+  valor,
+  valorPredeterminado = true,
+) {
+  if (
+    valor === undefined ||
+    valor === null ||
+    valor === ""
+  ) {
+    return valorPredeterminado;
+  }
+
+  if (
+    valor === true ||
+    valor === 1 ||
+    valor === "1" ||
+    valor === "true"
+  ) {
+    return true;
+  }
+
+  if (
+    valor === false ||
+    valor === 0 ||
+    valor === "0" ||
+    valor === "false"
+  ) {
+    return false;
+  }
+
+  return null;
+}
+
+/*
+ * =====================================
  * ROL
  * =====================================
  */
@@ -149,7 +188,7 @@ function filtrarProductoPorRol(
     .precio_costo;
 
   /*
-   * Nuevo precio base de costo.
+   * Precio base de costo.
    *
    * Un vendedor no debería
    * poder verlo.
@@ -219,6 +258,10 @@ function filtrarProductosPorRol(
 
 function validarProducto(
   body = {},
+  {
+    requiereCodigo = true,
+    requiereCategoria = false,
+  } = {},
 ) {
   const errores = [];
 
@@ -238,7 +281,10 @@ function validarProducto(
    * =====================================
    */
 
-  if (!codigo) {
+  if (
+    requiereCodigo &&
+    !codigo
+  ) {
     errores.push(
       "El código es obligatorio.",
     );
@@ -284,6 +330,19 @@ function validarProducto(
    * RELACIONES
    * =====================================
    */
+
+  if (
+    requiereCategoria &&
+    (
+      body.categoria_id === undefined ||
+      body.categoria_id === null ||
+      body.categoria_id === ""
+    )
+  ) {
+    errores.push(
+      "La categoría es obligatoria.",
+    );
+  }
 
   const camposRelacionados = [
     [
@@ -423,6 +482,26 @@ function validarProducto(
 
   /*
    * =====================================
+   * USA VARIANTES
+   * =====================================
+   */
+
+  const usaVariantes =
+    normalizarBooleano(
+      body.usa_variantes,
+      true,
+    );
+
+  if (
+    usaVariantes === null
+  ) {
+    errores.push(
+      "El tipo de producto no es válido.",
+    );
+  }
+
+  /*
+   * =====================================
    * RESULTADO
    * =====================================
    */
@@ -463,6 +542,14 @@ function validarProducto(
 
       precio_venta_default:
         precioVentaDefault,
+
+      /*
+       * true  = con variantes
+       * false = producto simple
+       */
+
+      usa_variantes:
+        usaVariantes,
     },
   };
 }
@@ -522,13 +609,24 @@ function responderErrorBaseDatos(
   }
 
   /*
-   * Relaciones pertenecientes
-   * a otra empresa o inexistentes.
+   * Errores de categoría,
+   * marca, proveedor y generación
+   * automática del código.
    */
 
   const erroresRelacion = {
     CATEGORIA_NO_VALIDA:
       "La categoría seleccionada no pertenece a la empresa.",
+
+    CATEGORIA_OBLIGATORIA:
+      "La categoría es obligatoria para crear un producto.",
+
+    CATEGORIA_CODIGO_NO_VALIDO:
+      "La categoría debe tener al menos 3 letras válidas para generar el código del producto.",
+
+    LIMITE_CODIGOS_CATEGORIA:
+      error.message ||
+      "Se alcanzó el límite de códigos disponibles para la categoría.",
 
     MARCA_NO_VALIDA:
       "La marca seleccionada no pertenece a la empresa.",
@@ -771,9 +869,26 @@ exports.crearProducto =
       );
     }
 
+    /*
+     * Al crear:
+     *
+     * - código NO obligatorio
+     * - categoría SÍ obligatoria
+     *
+     * El código lo genera
+     * productosService.
+     */
+
     const validacion =
       validarProducto(
         req.body,
+        {
+          requiereCodigo:
+            false,
+
+          requiereCategoria:
+            true,
+        },
       );
 
     if (
@@ -861,9 +976,23 @@ exports.actualizarProducto =
       );
     }
 
+    /*
+     * Al editar:
+     *
+     * seguimos enviando el código
+     * existente del producto.
+     */
+
     const validacion =
       validarProducto(
         req.body,
+        {
+          requiereCodigo:
+            true,
+
+          requiereCategoria:
+            false,
+        },
       );
 
     if (

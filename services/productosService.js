@@ -125,6 +125,266 @@ async function validarRelacionesProducto(
 
 /*
  * =====================================
+ * NORMALIZAR USA VARIANTES
+ * =====================================
+ *
+ * Solamente trabajamos internamente con:
+ *
+ * 1 = con variantes
+ * 0 = sin variantes
+ *
+ * Evitamos Boolean("0"), porque devuelve true.
+ */
+
+function normalizarUsaVariantes(
+  valor,
+) {
+  if (
+    valor === false ||
+    valor === 0 ||
+    valor === "0" ||
+    valor === "false"
+  ) {
+    return 0;
+  }
+
+  return 1;
+}
+
+/*
+ * =====================================
+ * GENERAR PREFIJO DE CATEGORÍA
+ * =====================================
+ *
+ * Ejemplos:
+ *
+ * PANTALONES -> PAN
+ * REMERAS    -> REM
+ * BUZOS      -> BUZ
+ *
+ * Quitamos tildes, espacios y caracteres
+ * especiales antes de tomar las primeras
+ * 3 letras.
+ */
+
+function generarPrefijoCategoria(
+  nombreCategoria,
+) {
+  const prefijo =
+    String(
+      nombreCategoria ?? "",
+    )
+      .normalize("NFD")
+      .replace(
+        /[\u0300-\u036f]/g,
+        "",
+      )
+      .toUpperCase()
+      .replace(
+        /[^A-Z]/g,
+        "",
+      )
+      .slice(
+        0,
+        3,
+      );
+
+  if (
+    prefijo.length < 3
+  ) {
+    const error =
+      new Error(
+        "La categoría debe tener al menos 3 letras válidas para generar el código del producto.",
+      );
+
+    error.code =
+      "CATEGORIA_CODIGO_NO_VALIDO";
+
+    throw error;
+  }
+
+  return prefijo;
+}
+
+/*
+ * =====================================
+ * GENERAR CÓDIGO DE PRODUCTO
+ * =====================================
+ *
+ * El código se genera automáticamente:
+ *
+ * PANTALONES -> PAN-001
+ * PANTALONES -> PAN-002
+ * REMERAS    -> REM-001
+ *
+ * La secuencia se calcula por empresa
+ * y por prefijo.
+ *
+ * También se consideran productos
+ * inactivos para no reutilizar códigos
+ * históricos.
+ */
+
+async function generarCodigoProducto(
+  connection,
+  empresaId,
+  categoriaId,
+) {
+  if (!categoriaId) {
+    const error =
+      new Error(
+        "La categoría es obligatoria para generar el código del producto.",
+      );
+
+    error.code =
+      "CATEGORIA_OBLIGATORIA";
+
+    throw error;
+  }
+
+  /*
+   * Bloqueamos la categoría durante
+   * la generación para evitar que dos
+   * altas simultáneas de la misma
+   * categoría calculen el mismo código.
+   */
+
+  const [categorias] =
+    await connection.query(
+      `
+        SELECT
+          id,
+          nombre
+
+        FROM categorias
+
+        WHERE
+          id = ?
+          AND empresa_id = ?
+
+        LIMIT 1
+
+        FOR UPDATE
+      `,
+      [
+        categoriaId,
+        empresaId,
+      ],
+    );
+
+  if (
+    categorias.length === 0
+  ) {
+    const error =
+      new Error(
+        "La categoría no pertenece a la empresa.",
+      );
+
+    error.code =
+      "CATEGORIA_NO_VALIDA";
+
+    throw error;
+  }
+
+  const nombreCategoria =
+    categorias[0].nombre;
+
+  const prefijo =
+    generarPrefijoCategoria(
+      nombreCategoria,
+    );
+
+  /*
+   * Buscamos TODOS los códigos que ya
+   * usan este prefijo en la empresa.
+   *
+   * No filtramos por activo para no
+   * reutilizar códigos eliminados.
+   */
+
+  const [productos] =
+    await connection.query(
+      `
+        SELECT
+          codigo
+
+        FROM productos
+
+        WHERE
+          empresa_id = ?
+          AND codigo LIKE ?
+      `,
+      [
+        empresaId,
+        `${prefijo}-%`,
+      ],
+    );
+
+  const expresionCodigo =
+    new RegExp(
+      `^${prefijo}-(\\d{3})$`,
+    );
+
+  let ultimoNumero = 0;
+
+  for (
+    const producto
+    of productos
+  ) {
+    const coincidencia =
+      String(
+        producto.codigo ?? "",
+      ).match(
+        expresionCodigo,
+      );
+
+    if (!coincidencia) {
+      continue;
+    }
+
+    const numero =
+      Number(
+        coincidencia[1],
+      );
+
+    if (
+      Number.isInteger(
+        numero,
+      ) &&
+      numero > ultimoNumero
+    ) {
+      ultimoNumero =
+        numero;
+    }
+  }
+
+  if (
+    ultimoNumero >= 999
+  ) {
+    const error =
+      new Error(
+        `Se alcanzó el límite de códigos para la categoría ${nombreCategoria}.`,
+      );
+
+    error.code =
+      "LIMITE_CODIGOS_CATEGORIA";
+
+    throw error;
+  }
+
+  const siguienteNumero =
+    ultimoNumero + 1;
+
+  return `${prefijo}-${String(
+    siguienteNumero,
+  ).padStart(
+    3,
+    "0",
+  )}`;
+}
+
+/*
+ * =====================================
  * OBTENER PRODUCTOS
  * =====================================
  */
@@ -148,6 +408,8 @@ const obtenerProductos =
 
             p.precio_costo_default,
             p.precio_venta_default,
+
+            p.usa_variantes,
 
             c.nombre AS categoria,
             m.nombre AS marca,
@@ -234,6 +496,7 @@ const obtenerProductos =
             p.proveedor_id,
             p.precio_costo_default,
             p.precio_venta_default,
+            p.usa_variantes,
             c.nombre,
             m.nombre,
             pr.nombre
@@ -275,6 +538,8 @@ const obtenerProductoPorId =
 
             p.precio_costo_default,
             p.precio_venta_default,
+
+            p.usa_variantes,
 
             p.activo,
             p.created_at,
@@ -431,6 +696,107 @@ const obtenerProductoPorId =
 
 /*
  * =====================================
+ * CREAR VARIANTE INTERNA
+ * =====================================
+ *
+ * Producto sin variantes:
+ *
+ * Se crea una variante interna para
+ * mantener funcionando:
+ *
+ * - stock
+ * - ventas
+ * - ingresos
+ * - movimientos
+ *
+ * Pero el usuario no tendrá que
+ * seleccionar color ni talle.
+ */
+
+async function crearVarianteInterna(
+  connection,
+  productoId,
+  precioCosto,
+  precioVenta,
+) {
+  const [result] =
+    await connection.query(
+      `
+        INSERT INTO producto_variantes
+        (
+          producto_id,
+          color_id,
+          talle_id,
+          codigo_barras,
+          precio_costo,
+          precio_venta,
+          stock_actual,
+          stock_minimo
+        )
+
+        VALUES (
+          ?,
+          NULL,
+          NULL,
+          NULL,
+          ?,
+          ?,
+          0,
+          1
+        )
+      `,
+      [
+        productoId,
+        precioCosto,
+        precioVenta,
+      ],
+    );
+
+  return result.insertId;
+}
+
+/*
+ * =====================================
+ * OBTENER VARIANTES INTERNAMENTE
+ * =====================================
+ */
+
+async function obtenerVariantesProducto(
+  connection,
+  productoId,
+) {
+  const [rows] =
+    await connection.query(
+      `
+        SELECT
+          id,
+          producto_id,
+          color_id,
+          talle_id,
+          codigo_barras,
+          precio_costo,
+          precio_venta,
+          stock_actual,
+          stock_minimo
+
+        FROM producto_variantes
+
+        WHERE
+          producto_id = ?
+
+        ORDER BY
+          id ASC
+      `,
+      [
+        productoId,
+      ],
+    );
+
+  return rows;
+}
+
+/*
+ * =====================================
  * CREAR PRODUCTO
  * =====================================
  */
@@ -441,7 +807,6 @@ const crearProducto =
     data,
   ) => {
     const {
-      codigo,
       nombre,
       descripcion = null,
       categoria_id = null,
@@ -450,7 +815,41 @@ const crearProducto =
 
       precio_costo_default,
       precio_venta_default,
+
+      usa_variantes = 1,
     } = data;
+
+    /*
+     * =================================
+     * NORMALIZAR TIPO
+     * =================================
+     */
+
+    const usaVariantesDb =
+      normalizarUsaVariantes(
+        usa_variantes,
+      );
+
+    /*
+     * =================================
+     * CATEGORÍA OBLIGATORIA
+     * =================================
+     *
+     * El código se genera desde el
+     * nombre de la categoría.
+     */
+
+    if (!categoria_id) {
+      const error =
+        new Error(
+          "La categoría es obligatoria para crear un producto.",
+        );
+
+      error.code =
+        "CATEGORIA_OBLIGATORIA";
+
+      throw error;
+    }
 
     /*
      * Evita relaciones con registros
@@ -466,12 +865,71 @@ const crearProducto =
       },
     );
 
-    const [result] =
-      await db.query(
-        `
-          INSERT INTO productos
-          (
-            empresa_id,
+    /*
+     * =================================
+     * TRANSACCIÓN
+     * =================================
+     */
+
+    const connection =
+      await db.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      /*
+       * =================================
+       * GENERAR CÓDIGO AUTOMÁTICO
+       * =================================
+       */
+
+      const codigo =
+        await generarCodigoProducto(
+          connection,
+          empresaId,
+          categoria_id,
+        );
+
+      /*
+       * =================================
+       * INSERT PRODUCTO
+       * =================================
+       */
+
+      const [result] =
+        await connection.query(
+          `
+            INSERT INTO productos
+            (
+              empresa_id,
+              codigo,
+              nombre,
+              descripcion,
+              categoria_id,
+              marca_id,
+              proveedor_id,
+
+              precio_costo_default,
+              precio_venta_default,
+
+              usa_variantes
+            )
+
+            VALUES (
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?
+            )
+          `,
+          [
+            empresaId,
             codigo,
             nombre,
             descripcion,
@@ -480,39 +938,53 @@ const crearProducto =
             proveedor_id,
 
             precio_costo_default,
-            precio_venta_default
-          )
+            precio_venta_default,
 
-          VALUES (
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?
-          )
-        `,
-        [
-          empresaId,
-          codigo,
-          nombre,
-          descripcion,
-          categoria_id,
-          marca_id,
-          proveedor_id,
+            usaVariantesDb,
+          ],
+        );
 
+      const productoId =
+        result.insertId;
+
+      /*
+       * =================================
+       * SIN VARIANTES
+       * =================================
+       *
+       * Creamos UNA variante interna.
+       */
+
+      if (
+        usaVariantesDb === 0
+      ) {
+        await crearVarianteInterna(
+          connection,
+          productoId,
           precio_costo_default,
           precio_venta_default,
-        ],
-      );
+        );
+      }
 
-    return obtenerProductoPorId(
-      result.insertId,
-      empresaId,
-    );
+      /*
+       * =================================
+       * COMMIT
+       * =================================
+       */
+
+      await connection.commit();
+
+      return obtenerProductoPorId(
+        productoId,
+        empresaId,
+      );
+    } catch (error) {
+      await connection.rollback();
+
+      throw error;
+    } finally {
+      connection.release();
+    }
   };
 
 /*
@@ -537,7 +1009,24 @@ const actualizarProducto =
 
       precio_costo_default,
       precio_venta_default,
+
+      usa_variantes = 1,
     } = data;
+
+    /*
+     * =================================
+     * NORMALIZAR TIPO
+     * =================================
+     */
+
+    const usaVariantesDb =
+      normalizarUsaVariantes(
+        usa_variantes,
+      );
+
+    /*
+     * Validar relaciones
+     */
 
     await validarRelacionesProducto(
       empresaId,
@@ -548,54 +1037,261 @@ const actualizarProducto =
       },
     );
 
-    const [result] =
-      await db.query(
-        `
-          UPDATE productos
+    const connection =
+      await db.getConnection();
 
-          SET
-            codigo = ?,
-            nombre = ?,
-            descripcion = ?,
-            categoria_id = ?,
-            marca_id = ?,
-            proveedor_id = ?,
+    try {
+      await connection.beginTransaction();
 
-            precio_costo_default = ?,
-            precio_venta_default = ?
+      /*
+       * =================================
+       * PRODUCTO ACTUAL
+       * =================================
+       */
 
-          WHERE
-            id = ?
-            AND empresa_id = ?
-            AND activo = TRUE
-        `,
-        [
-          codigo,
-          nombre,
-          descripcion,
-          categoria_id,
-          marca_id,
-          proveedor_id,
+      const [productosActuales] =
+        await connection.query(
+          `
+            SELECT
+              id,
+              usa_variantes
 
-          precio_costo_default,
-          precio_venta_default,
+            FROM productos
 
+            WHERE
+              id = ?
+              AND empresa_id = ?
+              AND activo = TRUE
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            id,
+            empresaId,
+          ],
+        );
+
+      if (
+        productosActuales.length ===
+        0
+      ) {
+        await connection.rollback();
+
+        return null;
+      }
+
+      const productoActual =
+        productosActuales[0];
+
+      const usabaVariantes =
+        Number(
+          productoActual
+            .usa_variantes,
+        ) === 1;
+
+      /*
+       * =================================
+       * VARIANTES EXISTENTES
+       * =================================
+       */
+
+      const variantesExistentes =
+        await obtenerVariantesProducto(
+          connection,
           id,
-          empresaId,
-        ],
+        );
+
+      /*
+       * =================================
+       * CON VARIANTES -> SIN VARIANTES
+       * =================================
+       *
+       * Solamente permitimos convertir
+       * cuando todavía no existen
+       * variantes.
+       */
+
+      if (
+        usabaVariantes &&
+        usaVariantesDb === 0 &&
+        variantesExistentes.length >
+          0
+      ) {
+        const error =
+          new Error(
+            "No se puede convertir a producto sin variantes porque ya tiene variantes creadas.",
+          );
+
+        error.code =
+          "PRODUCTO_TIENE_VARIANTES";
+
+        throw error;
+      }
+
+      /*
+       * =================================
+       * SIN VARIANTES -> CON VARIANTES
+       * =================================
+       *
+       * Un producto simple ya posee una
+       * variante interna.
+       *
+       * No la eliminamos porque puede
+       * tener stock o movimientos.
+       */
+
+      if (
+        !usabaVariantes &&
+        usaVariantesDb === 1 &&
+        variantesExistentes.length >
+          0
+      ) {
+        const error =
+          new Error(
+            "No se puede cambiar un producto simple a producto con variantes porque ya posee stock o una variante interna.",
+          );
+
+        error.code =
+          "PRODUCTO_TIPO_NO_MODIFICABLE";
+
+        throw error;
+      }
+
+      /*
+       * =================================
+       * UPDATE PRODUCTO
+       * =================================
+       */
+
+      const [result] =
+        await connection.query(
+          `
+            UPDATE productos
+
+            SET
+              codigo = ?,
+              nombre = ?,
+              descripcion = ?,
+              categoria_id = ?,
+              marca_id = ?,
+              proveedor_id = ?,
+
+              precio_costo_default = ?,
+              precio_venta_default = ?,
+
+              usa_variantes = ?
+
+            WHERE
+              id = ?
+              AND empresa_id = ?
+              AND activo = TRUE
+          `,
+          [
+            codigo,
+            nombre,
+            descripcion,
+            categoria_id,
+            marca_id,
+            proveedor_id,
+
+            precio_costo_default,
+            precio_venta_default,
+
+            usaVariantesDb,
+
+            id,
+            empresaId,
+          ],
+        );
+
+      if (
+        result.affectedRows ===
+        0
+      ) {
+        await connection.rollback();
+
+        return null;
+      }
+
+      /*
+       * =================================
+       * PRODUCTO SIMPLE
+       * =================================
+       */
+
+      if (
+        usaVariantesDb === 0
+      ) {
+        /*
+         * Si estamos convirtiendo un
+         * producto viejo que no tenía
+         * variantes, creamos la interna.
+         */
+
+        if (
+          variantesExistentes.length ===
+          0
+        ) {
+          await crearVarianteInterna(
+            connection,
+            id,
+            precio_costo_default,
+            precio_venta_default,
+          );
+        } else {
+          /*
+           * Si YA era producto simple,
+           * actualizamos el precio de
+           * su variante interna.
+           */
+
+          const varianteInterna =
+            variantesExistentes[0];
+
+          await connection.query(
+            `
+              UPDATE producto_variantes
+
+              SET
+                precio_costo = ?,
+                precio_venta = ?
+
+              WHERE
+                id = ?
+                AND producto_id = ?
+            `,
+            [
+              precio_costo_default,
+              precio_venta_default,
+
+              varianteInterna.id,
+              id,
+            ],
+          );
+        }
+      }
+
+      /*
+       * =================================
+       * COMMIT
+       * =================================
+       */
+
+      await connection.commit();
+
+      return obtenerProductoPorId(
+        id,
+        empresaId,
       );
+    } catch (error) {
+      await connection.rollback();
 
-    if (
-      result.affectedRows ===
-      0
-    ) {
-      return null;
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    return obtenerProductoPorId(
-      id,
-      empresaId,
-    );
   };
 
 /*
@@ -633,6 +1329,12 @@ const eliminarProducto =
       0
     );
   };
+
+/*
+ * =====================================
+ * EXPORTS
+ * =====================================
+ */
 
 module.exports = {
   obtenerProductos,
