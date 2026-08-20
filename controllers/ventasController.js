@@ -96,8 +96,23 @@ function validarProductos(
         );
       }
 
+      /*
+       * =====================================
+       * CANTIDAD
+       * =====================================
+       *
+       * Permitimos cantidades decimales:
+       *
+       * 1
+       * 0.250
+       * 0.850
+       * 1.250
+       *
+       * Ya no usamos Number.isInteger().
+       */
+
       if (
-        !Number.isInteger(
+        !Number.isFinite(
           cantidad,
         ) ||
         cantidad <= 0

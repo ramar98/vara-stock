@@ -114,14 +114,28 @@ function validarProductos(productos) {
         );
       }
 
+      /*
+       * =====================================
+       * CANTIDAD
+       * =====================================
+       *
+       * Permitimos cantidades decimales:
+       *
+       * 1
+       * 0.250
+       * 0.850
+       * 1.250
+       * 12.750
+       */
+
       if (
-        !Number.isInteger(
+        !Number.isFinite(
           cantidad,
         ) ||
         cantidad <= 0
       ) {
         errores.push(
-          `La cantidad del producto ${numeroItem} debe ser un número entero mayor que cero.`,
+          `La cantidad del producto ${numeroItem} debe ser mayor que cero.`,
         );
       }
 

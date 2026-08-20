@@ -27,7 +27,7 @@ function convertirId(valor) {
 function obtenerEmpresaId(req) {
   const empresaId = Number(
     req.empresaId ??
-      req.usuario?.empresa_id,
+    req.usuario?.empresa_id,
   );
 
   if (
@@ -71,11 +71,11 @@ function validarFecha(valor) {
 
   return (
     fecha.getFullYear() ===
-      anio &&
+    anio &&
     fecha.getMonth() ===
-      mes - 1 &&
+    mes - 1 &&
     fecha.getDate() ===
-      dia
+    dia
   );
 }
 
@@ -131,16 +131,16 @@ function validarAjuste(
 
   if (
     body.nuevo_stock ===
-      undefined ||
+    undefined ||
     body.nuevo_stock ===
-      "" ||
-    !Number.isInteger(
+    "" ||
+    !Number.isFinite(
       nuevoStock,
     ) ||
     nuevoStock < 0
   ) {
     errores.push(
-      "El nuevo stock debe ser un número entero mayor o igual a cero.",
+      "El nuevo stock debe ser un número válido mayor o igual a cero.",
     );
   }
 
@@ -237,7 +237,7 @@ function responderError(
 
   const errorControlado =
     erroresControlados[
-      error.code
+    error.code
     ];
 
   if (errorControlado) {
@@ -292,14 +292,14 @@ function responderError(
 
       error:
         process.env.NODE_ENV ===
-        "development"
+          "development"
           ? {
-              code:
-                error.code,
+            code:
+              error.code,
 
-              detail:
-                error.message,
-            }
+            detail:
+              error.message,
+          }
           : undefined,
     });
 }
@@ -326,20 +326,20 @@ exports.obtenerAjustes =
 
     const {
       fecha_desde:
-        fechaDesde,
+      fechaDesde,
 
       fecha_hasta:
-        fechaHasta,
+      fechaHasta,
 
       producto_id:
-        productoIdParametro,
+      productoIdParametro,
     } = req.query;
 
     const productoId =
       productoIdParametro
         ? convertirId(
-            productoIdParametro,
-          )
+          productoIdParametro,
+        )
         : null;
 
     if (
@@ -392,7 +392,7 @@ exports.obtenerAjustes =
       fechaDesde &&
       fechaHasta &&
       fechaDesde >
-        fechaHasta
+      fechaHasta
     ) {
       return res
         .status(400)
