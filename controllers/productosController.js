@@ -33,7 +33,7 @@ function obtenerEmpresaId(req) {
   const empresaId =
     Number(
       req.empresaId ??
-        req.usuario?.empresa_id,
+      req.usuario?.empresa_id,
     );
 
   if (
@@ -179,31 +179,14 @@ function filtrarProductoPorRol(
     ...producto,
   };
 
-  /*
-   * Costo calculado / agregado
-   * en consultas existentes.
-   */
-
   delete productoSeguro
     .precio_costo;
-
-  /*
-   * Precio base de costo.
-   *
-   * Un vendedor no debería
-   * poder verlo.
-   */
 
   delete productoSeguro
     .precio_costo_default;
 
   delete productoSeguro
     .margen;
-
-  /*
-   * También ocultamos el costo
-   * de cada variante.
-   */
 
   if (
     Array.isArray(
@@ -261,6 +244,7 @@ function validarProducto(
   {
     requiereCodigo = true,
     requiereCategoria = false,
+    permitirStockInicial = false,
   } = {},
 ) {
   const errores = [];
@@ -314,11 +298,11 @@ function validarProducto(
 
   if (
     body.descripcion !==
-      undefined &&
+    undefined &&
     body.descripcion !==
-      null &&
+    null &&
     typeof body.descripcion !==
-      "string"
+    "string"
   ) {
     errores.push(
       "La descripción debe ser un texto.",
@@ -393,7 +377,7 @@ function validarProducto(
 
   /*
    * =====================================
-   * PRECIO DE COSTO PREDETERMINADO
+   * PRECIO COSTO
    * =====================================
    */
 
@@ -404,12 +388,12 @@ function validarProducto(
 
   if (
     body.precio_costo_default ===
-      undefined ||
+    undefined ||
     body.precio_costo_default ===
-      null ||
+    null ||
     body.precio_costo_default ===
-      "" ||
-    Number.isNaN(
+    "" ||
+    !Number.isFinite(
       precioCostoDefault,
     ) ||
     precioCostoDefault < 0
@@ -421,7 +405,7 @@ function validarProducto(
 
   /*
    * =====================================
-   * PRECIO DE VENTA PREDETERMINADO
+   * PRECIO VENTA
    * =====================================
    */
 
@@ -432,12 +416,12 @@ function validarProducto(
 
   if (
     body.precio_venta_default ===
-      undefined ||
+    undefined ||
     body.precio_venta_default ===
-      null ||
+    null ||
     body.precio_venta_default ===
-      "" ||
-    Number.isNaN(
+    "" ||
+    !Number.isFinite(
       precioVentaDefault,
     ) ||
     precioVentaDefault < 0
@@ -455,25 +439,25 @@ function validarProducto(
 
   if (
     body.precio_costo_default !==
-      undefined &&
+    undefined &&
     body.precio_costo_default !==
-      null &&
+    null &&
     body.precio_costo_default !==
-      "" &&
+    "" &&
     body.precio_venta_default !==
-      undefined &&
+    undefined &&
     body.precio_venta_default !==
-      null &&
+    null &&
     body.precio_venta_default !==
-      "" &&
-    !Number.isNaN(
+    "" &&
+    Number.isFinite(
       precioCostoDefault,
     ) &&
-    !Number.isNaN(
+    Number.isFinite(
       precioVentaDefault,
     ) &&
     precioVentaDefault <
-      precioCostoDefault
+    precioCostoDefault
   ) {
     errores.push(
       "El precio de venta no puede ser menor al precio de costo.",
@@ -498,6 +482,51 @@ function validarProducto(
     errores.push(
       "El tipo de producto no es válido.",
     );
+  }
+
+  /*
+   * =====================================
+   * STOCK INICIAL
+   * =====================================
+   *
+   * Solo se acepta durante la creación.
+   *
+   * Si el producto usa variantes,
+   * el stock inicial general no se usa.
+   */
+
+  let stockInicial = 0;
+
+  if (
+    permitirStockInicial &&
+    usaVariantes === false
+  ) {
+    if (
+      body.stock_inicial ===
+      undefined ||
+      body.stock_inicial ===
+      null ||
+      body.stock_inicial ===
+      ""
+    ) {
+      stockInicial = 0;
+    } else {
+      stockInicial =
+        Number(
+          body.stock_inicial,
+        );
+
+      if (
+        !Number.isFinite(
+          stockInicial,
+        ) ||
+        stockInicial < 0
+      ) {
+        errores.push(
+          "El stock inicial debe ser un número mayor o igual a cero.",
+        );
+      }
+    }
   }
 
   /*
@@ -543,13 +572,19 @@ function validarProducto(
       precio_venta_default:
         precioVentaDefault,
 
-      /*
-       * true  = con variantes
-       * false = producto simple
-       */
-
       usa_variantes:
         usaVariantes,
+
+      /*
+       * Solo tiene efecto durante
+       * la creación de un producto
+       * sin variantes.
+       */
+      stock_inicial:
+        permitirStockInicial &&
+          usaVariantes === false
+          ? stockInicial
+          : 0,
     },
   };
 }
@@ -608,12 +643,6 @@ function responderErrorBaseDatos(
       });
   }
 
-  /*
-   * Errores de categoría,
-   * marca, proveedor y generación
-   * automática del código.
-   */
-
   const erroresRelacion = {
     CATEGORIA_NO_VALIDA:
       "La categoría seleccionada no pertenece a la empresa.",
@@ -633,11 +662,14 @@ function responderErrorBaseDatos(
 
     PROVEEDOR_NO_VALIDO:
       "El proveedor seleccionado no pertenece a la empresa.",
+
+    STOCK_INICIAL_NO_VALIDO:
+      "El stock inicial debe ser un número mayor o igual a cero.",
   };
 
   if (
     erroresRelacion[
-      error.code
+    error.code
     ]
   ) {
     return res
@@ -648,7 +680,7 @@ function responderErrorBaseDatos(
 
         message:
           erroresRelacion[
-            error.code
+          error.code
           ],
 
         error: {
@@ -693,14 +725,14 @@ function responderErrorBaseDatos(
 
       error:
         process.env.NODE_ENV ===
-        "development"
+          "development"
           ? {
-              code:
-                error.code,
+            code:
+              error.code,
 
-              detail:
-                error.message,
-            }
+            detail:
+              error.message,
+          }
           : undefined,
     });
 }
@@ -802,14 +834,6 @@ exports.obtenerProducto =
           empresaId,
         );
 
-      /*
-       * Si el ID existe pero pertenece
-       * a otra empresa también devolvemos
-       * 404.
-       *
-       * No revelamos su existencia.
-       */
-
       if (!producto) {
         return res
           .status(404)
@@ -869,24 +893,29 @@ exports.crearProducto =
       );
     }
 
-    /*
-     * Al crear:
-     *
-     * - código NO obligatorio
-     * - categoría SÍ obligatoria
-     *
-     * El código lo genera
-     * productosService.
-     */
-
     const validacion =
       validarProducto(
         req.body,
         {
+          /*
+           * El código se genera
+           * automáticamente.
+           */
           requiereCodigo:
             false,
 
+          /*
+           * Necesitamos categoría
+           * para generar el código.
+           */
           requiereCategoria:
+            true,
+
+          /*
+           * Solo durante el alta
+           * aceptamos stock inicial.
+           */
+          permitirStockInicial:
             true,
         },
       );
@@ -910,7 +939,8 @@ exports.crearProducto =
 
     try {
       /*
-       * empresa_id NO viene del body.
+       * empresa_id NO viene
+       * del body.
        */
 
       const producto =
@@ -976,13 +1006,6 @@ exports.actualizarProducto =
       );
     }
 
-    /*
-     * Al editar:
-     *
-     * seguimos enviando el código
-     * existente del producto.
-     */
-
     const validacion =
       validarProducto(
         req.body,
@@ -991,6 +1014,13 @@ exports.actualizarProducto =
             true,
 
           requiereCategoria:
+            false,
+
+          /*
+           * Al editar NO permitimos
+           * modificar stock desde acá.
+           */
+          permitirStockInicial:
             false,
         },
       );

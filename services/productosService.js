@@ -709,8 +709,11 @@ const obtenerProductoPorId =
  * - ingresos
  * - movimientos
  *
- * Pero el usuario no tendrá que
- * seleccionar color ni talle.
+ * El usuario no necesita seleccionar
+ * color ni talle.
+ *
+ * Durante la creación del producto
+ * podemos asignar stock inicial.
  */
 
 async function crearVarianteInterna(
@@ -718,7 +721,36 @@ async function crearVarianteInterna(
   productoId,
   precioCosto,
   precioVenta,
+  stockInicial = 0,
 ) {
+  /*
+   * Seguridad adicional.
+   *
+   * El controller ya valida este valor,
+   * pero el service también se protege
+   * ante llamadas internas incorrectas.
+   */
+
+  const stock =
+    Number(
+      stockInicial ?? 0,
+    );
+
+  if (
+    !Number.isFinite(stock) ||
+    stock < 0
+  ) {
+    const error =
+      new Error(
+        "El stock inicial debe ser un número mayor o igual a cero.",
+      );
+
+    error.code =
+      "STOCK_INICIAL_NO_VALIDO";
+
+    throw error;
+  }
+
   const [result] =
     await connection.query(
       `
@@ -741,7 +773,7 @@ async function crearVarianteInterna(
           NULL,
           ?,
           ?,
-          0,
+          ?,
           1
         )
       `,
@@ -749,6 +781,7 @@ async function crearVarianteInterna(
         productoId,
         precioCosto,
         precioVenta,
+        stock,
       ],
     );
 
@@ -817,6 +850,12 @@ const crearProducto =
       precio_venta_default,
 
       usa_variantes = 1,
+
+      /*
+       * Solo se utilizará cuando
+       * usa_variantes = false.
+       */
+      stock_inicial = 0,
     } = data;
 
     /*
@@ -832,11 +871,42 @@ const crearProducto =
 
     /*
      * =================================
+     * NORMALIZAR STOCK INICIAL
+     * =================================
+     */
+
+    let stockInicialDb = 0;
+
+    if (
+      usaVariantesDb === 0
+    ) {
+      stockInicialDb =
+        Number(
+          stock_inicial ?? 0,
+        );
+
+      if (
+        !Number.isFinite(
+          stockInicialDb,
+        ) ||
+        stockInicialDb < 0
+      ) {
+        const error =
+          new Error(
+            "El stock inicial debe ser un número mayor o igual a cero.",
+          );
+
+        error.code =
+          "STOCK_INICIAL_NO_VALIDO";
+
+        throw error;
+      }
+    }
+
+    /*
+     * =================================
      * CATEGORÍA OBLIGATORIA
      * =================================
-     *
-     * El código se genera desde el
-     * nombre de la categoría.
      */
 
     if (!categoria_id) {
@@ -949,10 +1019,11 @@ const crearProducto =
 
       /*
        * =================================
-       * SIN VARIANTES
+       * PRODUCTO SIN VARIANTES
        * =================================
        *
-       * Creamos UNA variante interna.
+       * Creamos UNA variante interna
+       * y asignamos el stock inicial.
        */
 
       if (
@@ -963,6 +1034,7 @@ const crearProducto =
           productoId,
           precio_costo_default,
           precio_venta_default,
+          stockInicialDb,
         );
       }
 
@@ -1117,7 +1189,7 @@ const actualizarProducto =
         usabaVariantes &&
         usaVariantesDb === 0 &&
         variantesExistentes.length >
-          0
+        0
       ) {
         const error =
           new Error(
@@ -1146,7 +1218,7 @@ const actualizarProducto =
         !usabaVariantes &&
         usaVariantesDb === 1 &&
         variantesExistentes.length >
-          0
+        0
       ) {
         const error =
           new Error(
