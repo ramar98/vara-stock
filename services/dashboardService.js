@@ -32,6 +32,7 @@ const obtenerResumen =
     const condicionesVentasHoy = [
       "v.empresa_id = ?",
       "DATE(v.fecha) = CURRENT_DATE",
+      "v.estado = 'ACTIVA'",
     ];
 
     const parametrosVentasHoy = [
@@ -58,6 +59,7 @@ const obtenerResumen =
       "v.empresa_id = ?",
       "YEAR(v.fecha) = YEAR(CURRENT_DATE)",
       "MONTH(v.fecha) = MONTH(CURRENT_DATE)",
+      "v.estado = 'ACTIVA'",
     ];
 
     const parametrosVentasMes = [
@@ -106,6 +108,7 @@ const obtenerResumen =
 
     const condicionesVentasRecientes = [
       "v.empresa_id = ?",
+      "v.estado = 'ACTIVA'",
     ];
 
     const parametrosVentasRecientes = [
@@ -129,6 +132,7 @@ const obtenerResumen =
       ventasMesResult,
       comprasMesResult,
       stockBajoResult,
+      sinStockResult,
       movimientosResult,
       ventasRecientesResult,
     ] =
@@ -208,8 +212,8 @@ const obtenerResumen =
 
             WHERE
               ${condicionesVentasHoy.join(
-                " AND ",
-              )}
+            " AND ",
+          )}
           `,
           parametrosVentasHoy,
         ),
@@ -232,8 +236,8 @@ const obtenerResumen =
 
             WHERE
               ${condicionesVentasMes.join(
-                " AND ",
-              )}
+            " AND ",
+          )}
           `,
           parametrosVentasMes,
         ),
@@ -305,6 +309,34 @@ const obtenerResumen =
         ),
 
         /*
+          * =============================
+          * PRODUCTOS / VARIANTES
+          * SIN STOCK
+          * =============================
+          */
+
+        db.query(
+          `
+          SELECT
+             COUNT(*) AS cantidad
+
+          FROM producto_variantes pv
+
+          INNER JOIN productos p
+            ON p.id =
+            pv.producto_id
+
+          WHERE
+            p.empresa_id = ?
+          AND p.activo = TRUE
+          AND pv.stock_actual <= 0
+           `,
+          [
+            empresaId,
+          ],
+        ),
+
+        /*
          * =============================
          * ÚLTIMOS MOVIMIENTOS
          * =============================
@@ -367,8 +399,8 @@ const obtenerResumen =
 
             WHERE
               ${condicionesMovimientos.join(
-                " AND ",
-              )}
+            " AND ",
+          )}
 
             ORDER BY
               ms.created_at DESC,
@@ -433,8 +465,8 @@ const obtenerResumen =
 
             WHERE
               ${condicionesVentasRecientes.join(
-                " AND ",
-              )}
+            " AND ",
+          )}
 
             GROUP BY
               v.id,
@@ -466,42 +498,49 @@ const obtenerResumen =
       Number(
         productosResult?.[0]?.[0]
           ?.cantidad ??
-          0,
+        0,
       );
 
     const unidadesStock =
       Number(
         stockResult?.[0]?.[0]
           ?.cantidad ??
-          0,
+        0,
       );
 
     const ventasHoy =
       Number(
         ventasHoyResult?.[0]?.[0]
           ?.total ??
-          0,
+        0,
       );
 
     const ventasMes =
       Number(
         ventasMesResult?.[0]?.[0]
           ?.total ??
-          0,
+        0,
       );
 
     const comprasMes =
       Number(
         comprasMesResult?.[0]?.[0]
           ?.total ??
-          0,
+        0,
       );
 
     const stockBajo =
       Number(
         stockBajoResult?.[0]?.[0]
           ?.cantidad ??
-          0,
+        0,
+      );
+
+    const sinStock =
+      Number(
+        sinStockResult?.[0]?.[0]
+          ?.cantidad ??
+        0,
       );
 
     const gananciaBrutaEstimada =
@@ -528,6 +567,9 @@ const obtenerResumen =
 
       stock_bajo:
         stockBajo,
+
+      sin_stock:
+        sinStock,
 
       ultimos_movimientos:
         movimientosResult?.[0] ??
@@ -558,7 +600,7 @@ const obtenerVentasPorDia =
       Math.min(
         Math.max(
           Number(dias) ||
-            7,
+          7,
           1,
         ),
         90,
@@ -575,15 +617,18 @@ const obtenerVentasPorDia =
 
     const condiciones = [
       `
-        v.empresa_id = ?
-      `,
+    v.empresa_id = ?
+  `,
       `
-        v.fecha >=
-        DATE_SUB(
-          CURRENT_DATE,
-          INTERVAL ? DAY
-        )
-      `,
+    v.estado = 'ACTIVA'
+  `,
+      `
+    v.fecha >=
+    DATE_SUB(
+      CURRENT_DATE,
+      INTERVAL ? DAY
+    )
+  `,
     ];
 
     const parametros = [
@@ -620,8 +665,8 @@ const obtenerVentasPorDia =
 
           WHERE
             ${condiciones.join(
-              " AND ",
-            )}
+          " AND ",
+        )}
 
           GROUP BY
             DATE(v.fecha)
@@ -640,13 +685,13 @@ const obtenerVentasPorDia =
         cantidad_ventas:
           Number(
             fila.cantidad_ventas ??
-              0,
+            0,
           ),
 
         total:
           Number(
             fila.total ??
-              0,
+            0,
           ),
       }),
     );

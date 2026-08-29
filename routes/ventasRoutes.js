@@ -24,19 +24,44 @@ router.use(
   verificarAutenticacion,
 );
 
+/*
+ * =====================================
+ * LISTADO
+ * =====================================
+ */
 router.get(
   "/",
   ventasController.obtenerVentas,
 );
 
+/*
+ * =====================================
+ * DETALLE
+ * =====================================
+ */
 router.get(
   "/:id",
   ventasController.obtenerVenta,
 );
 
+/*
+ * =====================================
+ * CREAR
+ * =====================================
+ */
 router.post(
   "/",
   ventasController.crearVenta,
+);
+
+/*
+ * =====================================
+ * ANULAR
+ * =====================================
+ */
+router.patch(
+  "/:id/anular",
+  ventasController.anularVenta,
 );
 
 module.exports =

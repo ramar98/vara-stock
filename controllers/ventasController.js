@@ -25,7 +25,7 @@ function convertirId(valor) {
 function obtenerEmpresaId(req) {
   const empresaId = Number(
     req.empresaId ??
-      req.usuario?.empresa_id,
+    req.usuario?.empresa_id,
   );
 
   if (
@@ -36,6 +36,22 @@ function obtenerEmpresaId(req) {
   }
 
   return empresaId;
+}
+
+function normalizarRol(valor) {
+  return String(
+    valor ?? "",
+  )
+    .trim()
+    .toUpperCase();
+}
+
+function esAdministrador(req) {
+  return (
+    normalizarRol(
+      req.usuario?.rol,
+    ) === "ADMINISTRADOR"
+  );
 }
 
 function validarFecha(valor) {
@@ -95,21 +111,6 @@ function validarProductos(
           `La variante del producto ${numero} no es válida.`,
         );
       }
-
-      /*
-       * =====================================
-       * CANTIDAD
-       * =====================================
-       *
-       * Permitimos cantidades decimales:
-       *
-       * 1
-       * 0.250
-       * 0.850
-       * 1.250
-       *
-       * Ya no usamos Number.isInteger().
-       */
 
       if (
         !Number.isFinite(
@@ -384,6 +385,67 @@ function responderError(
 
         message:
           "Uno de los datos relacionados de la venta no existe.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+    "VENTA_NO_ENCONTRADA"
+  ) {
+    return res
+      .status(404)
+      .json({
+        success: false,
+
+        message:
+          "Venta no encontrada.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+    "VENTA_YA_ANULADA"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          "La venta ya se encuentra anulada.",
+
+        error: {
+          code:
+            error.code,
+        },
+      });
+  }
+
+  if (
+    error.code ===
+      "VENTA_NO_ANULABLE" ||
+    error.code ===
+      "VENTA_SIN_DETALLE" ||
+    error.code ===
+      "CANTIDAD_VENTA_INVALIDA"
+  ) {
+    return res
+      .status(409)
+      .json({
+        success: false,
+
+        message:
+          error.message,
 
         error: {
           code:
@@ -729,7 +791,141 @@ exports.crearVenta =
           message:
             "Venta registrada correctamente.",
 
-          data: venta,
+          data:
+            venta,
+        });
+    } catch (error) {
+      return responderError(
+        res,
+        error,
+      );
+    }
+  };
+
+/*
+ * =====================================
+ * ANULAR VENTA
+ * =====================================
+ */
+
+exports.anularVenta =
+  async (
+    req,
+    res,
+  ) => {
+    const id =
+      convertirId(
+        req.params.id,
+      );
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El ID de la venta no es válido.",
+        });
+    }
+
+    const empresaId =
+      obtenerEmpresaId(req);
+
+    if (!empresaId) {
+      return responderEmpresaNoValida(
+        res,
+      );
+    }
+
+    if (!esAdministrador(req)) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+
+          message:
+            "No tenés permisos para anular ventas.",
+
+          error: {
+            code:
+              "PERMISO_DENEGADO",
+          },
+        });
+    }
+
+    const usuarioId =
+      convertirId(
+        req.usuario?.id ??
+          req.usuarioId,
+      );
+
+    if (!usuarioId) {
+      return res
+        .status(401)
+        .json({
+          success: false,
+
+          message:
+            "No se pudo identificar al usuario de la sesión.",
+
+          error: {
+            code:
+              "USUARIO_NO_AUTENTICADO",
+          },
+        });
+    }
+
+    const motivo =
+      String(
+        req.body?.motivo ??
+          "",
+      ).trim();
+
+    if (!motivo) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El motivo de la anulación es obligatorio.",
+        });
+    }
+
+    if (
+      motivo.length >
+      500
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "El motivo de la anulación no puede superar los 500 caracteres.",
+        });
+    }
+
+    try {
+      const venta =
+        await ventasService.anularVenta({
+          id,
+          empresaId,
+          usuarioId,
+          motivo,
+        });
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Venta anulada correctamente. El stock fue restituido.",
+
+          data:
+            venta,
         });
     } catch (error) {
       return responderError(
